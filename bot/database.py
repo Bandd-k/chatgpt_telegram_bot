@@ -23,6 +23,12 @@ class Database:
                 raise ValueError(f"User {user_id} does not exist")
             else:
                 return False
+            
+    def get_all_user_ids(self):
+        user_ids = []
+        for user in self.user_collection.find():
+            user_ids.append(user['_id'])
+        return user_ids
 
     def add_new_user(
         self,
@@ -50,6 +56,7 @@ class Database:
             "n_used_tokens": {},
 
             "n_generated_images": 0,
+            "n_voice_generated_characters": 0,
             "n_transcribed_seconds": 0.0  # voice message transcription
         }
 
