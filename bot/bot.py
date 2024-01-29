@@ -44,14 +44,10 @@ user_semaphores = {}
 user_tasks = {}
 
 HELP_MESSAGE = """Commands:
-⚪ /retry – Regenerate last bot answer
 ⚪ /new – Start new dialog
-⚪ /settings – Show settings
-⚪ /balance – Show balance
 ⚪ /voice – Toggle voice answers
 ⚪ /topis – Choose topic to discuss
 ⚪ /dict word – Show dictionary for the word
-⚪ /news – Soon
 ⚪ /help – Show help
 
 🎤 Try to use <b>Voice Messages</b> instead of text
@@ -754,11 +750,11 @@ async def post_init(application: Application):
     await application.bot.set_my_commands([
         BotCommand("/new", "Start new dialog"),
         BotCommand("/voice", "Switch voice mode"),
-        BotCommand("/retry", "Re-generate response for previous query"),
+        # BotCommand("/retry", "Re-generate response for previous query"),
         BotCommand("/topics", "Show topics for discussion"),
         BotCommand("/dict", "Show dictionary for the word"),
-        BotCommand("/balance", "Show balance"),
-        BotCommand("/settings", "Show settings"),
+        # BotCommand("/balance", "Show balance"),
+        # BotCommand("/settings", "Show settings"),
         BotCommand("/help", "Show help message"),
     ])
 
@@ -790,9 +786,9 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("help_group_chat", help_group_chat_handle, filters=user_filter))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, message_handle))
-    application.add_handler(CommandHandler("retry", retry_handle, filters=user_filter))
+    # application.add_handler(CommandHandler("retry", retry_handle, filters=user_filter))
     application.add_handler(CommandHandler("new", new_dialog_handle, filters=user_filter))
-    application.add_handler(CommandHandler("cancel", cancel_handle, filters=user_filter))
+    # application.add_handler(CommandHandler("cancel", cancel_handle, filters=user_filter))
 
     application.add_handler(MessageHandler(filters.VOICE & user_filter, voice_message_handle))
 
@@ -803,10 +799,10 @@ def run_bot() -> None:
     application.add_handler(CallbackQueryHandler(show_topics_callback_handle, pattern="^show_topics"))
     application.add_handler(CallbackQueryHandler(set_topics_handle, pattern="^set_topics"))
 
-    application.add_handler(CommandHandler("settings", settings_handle, filters=user_filter))
-    application.add_handler(CallbackQueryHandler(set_settings_handle, pattern="^set_settings"))
+    # application.add_handler(CommandHandler("settings", settings_handle, filters=user_filter))
+    # application.add_handler(CallbackQueryHandler(set_settings_handle, pattern="^set_settings"))
 
-    application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
+    # application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
 
     # admin commands
     application.add_handler(CommandHandler("spending", show_all_spending_handle, filters=admin_filter))
