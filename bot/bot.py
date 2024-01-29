@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 import pydub
 import dictionary
+import onboarding
 
 import telegram
 from telegram import (
@@ -781,9 +782,11 @@ def run_bot() -> None:
 
     admin_filter = filters.User(username=["karpenoid"])
 
-    application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
+    application.add_handler(onboarding.conversation_handler) #filters?
+
+    #application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
     application.add_handler(CommandHandler("help", help_handle, filters=user_filter))
-    application.add_handler(CommandHandler("help_group_chat", help_group_chat_handle, filters=user_filter))
+    #application.add_handler(CommandHandler("help_group_chat", help_group_chat_handle, filters=user_filter))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, message_handle))
     # application.add_handler(CommandHandler("retry", retry_handle, filters=user_filter))
