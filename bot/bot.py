@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 user_semaphores = {}
 user_tasks = {}
 
+# test
 HELP_MESSAGE = """Commands:
 ⚪ /new – Start new dialog
 ⚪ /voice – Toggle voice answers
