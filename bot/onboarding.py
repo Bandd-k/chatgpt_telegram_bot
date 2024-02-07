@@ -2,7 +2,7 @@ from telegram.ext import CommandHandler, ConversationHandler, CallbackQueryHandl
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Defining states
-GREET, COOL, TRYING, UNDERSTOOD, READY, LETSGO = range(6)
+GREET, COOL, UNDERSTOOD, READY, LETSGO = range(5)
 
 # Start command handler
 async def start(update, context):
@@ -28,19 +28,9 @@ async def cool(update, context):
     await query.answer()
     await query.message.reply_text(text="Старайся использовать только голосовые сообщения.")
     await query.message.reply_text("Строй более сложные предложения, используй новые слова, не отвечай короткими фразами. Следи за своим произношением.")
-    keyboard = [[InlineKeyboardButton("Буду стараться!", callback_data='trying')]]
+    keyboard = [[InlineKeyboardButton("Буду стараться!", callback_data='understood')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.reply_text("Итоговый результат зависит только от тебя самого!", reply_markup=reply_markup)
-    return TRYING
-
-# Trying handler
-async def trying(update, context):
-    query = update.callback_query
-    await query.answer()
-    await query.message.reply_text(text="У меня есть только одна команда")
-    keyboard = [[InlineKeyboardButton("Понятно", callback_data='understood')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text("/voice - включить или выключить голосовые сообщения.",reply_markup=reply_markup)
     return UNDERSTOOD
 
 # Understood handler
@@ -82,7 +72,6 @@ conversation_handler = ConversationHandler(
     states={
         GREET: [CallbackQueryHandler(greet, pattern='^greet$')],
         COOL: [CallbackQueryHandler(cool, pattern='^cool$')],
-        TRYING: [CallbackQueryHandler(trying, pattern='^trying$')],
         UNDERSTOOD: [CallbackQueryHandler(understood, pattern='^understood$')],
         READY: [CallbackQueryHandler(ready, pattern='^ready$')],
         LETSGO: [CallbackQueryHandler(letsgo, pattern='^letsgo$')]
