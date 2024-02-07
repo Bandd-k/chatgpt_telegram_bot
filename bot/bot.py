@@ -241,10 +241,9 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         voice_mode = db.get_user_attribute(user_id, "voice_mode")
 
         try:
-            # send placeholder message to user
-            placeholder_message = await update.message.reply_text("...")
+            await update.message.chat.send_action(action="record_audio")
 
-            # send typing action
+            # send "typing..." animation
             await update.message.chat.send_action(action="typing")
 
             if _message is None or len(_message) == 0:
@@ -252,50 +251,17 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                  return
 
             dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
-            parse_mode = {
-                "html": ParseMode.HTML,
-                "markdown": ParseMode.MARKDOWN
-            }[config.chat_modes[chat_mode]["parse_mode"]]
 
             chatgpt_instance = openai_utils.ChatGPT(model=current_model)
-            if config.enable_message_streaming:
-                gen = chatgpt_instance.send_message_stream(_message, dialog_messages=dialog_messages, chat_mode=chat_mode)
-            else:
-                answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
-                    _message,
-                    dialog_messages=dialog_messages,
-                    chat_mode=chat_mode
-                )
 
-                async def fake_gen():
-                    yield "finished", answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed
+            answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
+                _message,
+                dialog_messages=dialog_messages,
+                chat_mode=chat_mode
+            )
 
-                gen = fake_gen()
-
-            prev_answer = ""
-            async for gen_item in gen:
-                status, answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = gen_item
-
-                answer = answer[:4096]  # telegram message limit
-
-                # update only when 100 new symbols are ready
-                if abs(len(answer) - len(prev_answer)) < 100 and status != "finished":
-                    continue
-
-                try:
-                    await context.bot.edit_message_text(answer, chat_id=placeholder_message.chat_id, message_id=placeholder_message.message_id, parse_mode=parse_mode)
-                except telegram.error.BadRequest as e:
-                    if str(e).startswith("Message is not modified"):
-                        continue
-                    else:
-                        await context.bot.edit_message_text(answer, chat_id=placeholder_message.chat_id, message_id=placeholder_message.message_id)
-
-                await asyncio.sleep(0.01)  # wait a bit to avoid flooding
-
-                prev_answer = answer
-
-            #send audio answer here
             if voice_mode:
+                # send audio answer  
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     await update.message.chat.send_action(action="record_audio")
                     tmp_dir = Path(tmp_dir)
@@ -313,6 +279,12 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                     db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
 
                     await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
+                
+                # send hidden transcription
+                await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
+            
+            else:
+                await update.message.reply_text(answer[:4096])
 
             # update user data
             new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
@@ -372,6 +344,8 @@ async def is_previous_message_not_answered_yet(update: Update, context: Callback
 
 async def voice_message_handle(update: Update, context: CallbackContext):
     # check if bot was mentioned (for group chats)
+    # context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
+    await update.message.chat.send_action(action="typing")
     if not await is_bot_mentioned(update, context):
         return
 
