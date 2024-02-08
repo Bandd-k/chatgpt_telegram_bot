@@ -254,6 +254,13 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
             chatgpt_instance = openai_utils.ChatGPT(model=current_model)
 
+            correction_answer, (x, y), z = await chatgpt_instance.send_message(
+                _message,
+                dialog_messages=[],
+                chat_mode="correction_check"
+            )
+            await update.message.reply_text(correction_answer[:4096])
+
             answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
                 _message,
                 dialog_messages=dialog_messages,
