@@ -241,11 +241,6 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         voice_mode = db.get_user_attribute(user_id, "voice_mode")
 
         try:
-            await update.message.chat.send_action(action="record_audio")
-
-            # send "typing..." animation
-            await update.message.chat.send_action(action="typing")
-
             if _message is None or len(_message) == 0:
                  await update.message.reply_text("🥲 You sent <b>empty message</b>. Please, try again!", parse_mode=ParseMode.HTML)
                  return
@@ -254,12 +249,23 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
             chatgpt_instance = openai_utils.ChatGPT(model=current_model)
 
-            correction_answer, (x, y), z = await chatgpt_instance.send_message(
-                _message,
-                dialog_messages=[],
-                chat_mode="correction_check"
-            )
-            await update.message.reply_text(correction_answer[:4096])
+            # send correction check response 
+            if len(dialog_messages):
+                await update.message.chat.send_action(action="typing")
+                last_message = dialog_messages[-1]
+                message_to_check_correction = f"""
+                Student: {last_message['user']}
+                Teacher: {last_message['bot']}
+                Student: {_message}
+                """
+
+                correction_answer, (x, y), z = await chatgpt_instance.send_message(
+                    message_to_check_correction,
+                    dialog_messages=[],
+                    chat_mode="correction_check"
+                )
+                if correction_answer != "no_reply":
+                    await update.message.reply_text(correction_answer[:4096])
 
             answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
                 _message,
@@ -286,11 +292,13 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                     db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
 
                     await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
-                
+
+                await update.message.chat.send_action(action="typing")
                 # send hidden transcription
                 await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
             
             else:
+                await update.message.chat.send_action(action="typing")
                 await update.message.reply_text(answer[:4096])
 
             # update user data
