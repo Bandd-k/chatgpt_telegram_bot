@@ -32,6 +32,9 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode, ChatAction
 
+from mixpanel import Mixpanel
+mp = Mixpanel("4acbbf84b424e3265bcc39e82cb3634b")
+
 import config
 import database
 import openai_utils
@@ -87,6 +90,7 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
             last_name= user.last_name
         )
         db.start_new_dialog(user.id)
+        mp.track(user.id, 'register_user_if_not_exists -> adding a new user ')
 
     if db.get_user_attribute(user.id, "current_dialog_id") is None:
         db.start_new_dialog(user.id)
@@ -161,6 +165,8 @@ async def voice_handle(update: Update, context: CallbackContext):
     answer = f"Bot voice is " + ("enabled" if voice else "disabled")
 
     await update.message.reply_text(answer, parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'voice_handle')
+
 
 async def dict_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -177,6 +183,7 @@ async def dict_handle(update: Update, context: CallbackContext):
     except (IndexError, ValueError):
         response = 'Please provide an input parameter. Usage: /dict <input>'
     await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+    mp.track(user_id, 'dict_handle')
 
 
 async def start_handle(update: Update, context: CallbackContext):
@@ -194,6 +201,7 @@ async def start_handle(update: Update, context: CallbackContext):
     db.set_user_attribute(user_id, "current_chat_mode", chat_mode)
 
     await update.message.reply_text(f"{config.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'start_handle')
 
 
 async def help_handle(update: Update, context: CallbackContext):
@@ -201,8 +209,9 @@ async def help_handle(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     db.set_user_attribute(user_id, "last_interaction", datetime.now())
     await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'help_handle')
 
-async def message_handle(update: Update, context: CallbackContext, message=None, use_new_dialog_timeout=True, from_user = True):
+async def message_handle(update: Update, context: CallbackContext, message=None, use_new_dialog_timeout=True, from_user = True):    
     # check if bot was mentioned (for group chats)
     if not await is_bot_mentioned(update, context):
         return
@@ -225,6 +234,8 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         user_id = update.message.from_user.id
     else:
         user_id = update.from_user.id
+
+
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
 
     async def message_handle_fn():
@@ -343,6 +354,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         finally:
             if user_id in user_tasks:
                 del user_tasks[user_id]
+    mp.track(user_id, 'message_handle')
 
 
 async def is_previous_message_not_answered_yet(update: Update, context: CallbackContext):
@@ -355,7 +367,6 @@ async def is_previous_message_not_answered_yet(update: Update, context: Callback
         return True
     else:
         return False
-
 
 async def voice_message_handle(update: Update, context: CallbackContext):
     # check if bot was mentioned (for group chats)
@@ -387,6 +398,7 @@ async def voice_message_handle(update: Update, context: CallbackContext):
     db.set_user_attribute(user_id, "n_transcribed_seconds", voice.duration + db.get_user_attribute(user_id, "n_transcribed_seconds"))
 
     await message_handle(update, context, message=transcribed_text)
+    mp.track(user_id, 'voice_message_handle')
 
 async def new_dialog_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -400,6 +412,7 @@ async def new_dialog_handle(update: Update, context: CallbackContext):
 
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
     await update.message.reply_text(f"{config.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'new_dialog_handle')
 
 def get_topics_menu(page_index: int):
     n_chat_modes_per_page = config.n_chat_modes_per_page
@@ -439,26 +452,26 @@ def get_topics_menu(page_index: int):
     return text, reply_markup
 
 async def show_topics_callback_handle(update: Update, context: CallbackContext):
-     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
-     if await is_previous_message_not_answered_yet(update.callback_query, context): return
+    await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
+    if await is_previous_message_not_answered_yet(update.callback_query, context): return
 
-     user_id = update.callback_query.from_user.id
-     db.set_user_attribute(user_id, "last_interaction", datetime.now())
+    user_id = update.callback_query.from_user.id
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
 
-     query = update.callback_query
-     await query.answer()
+    query = update.callback_query
+    await query.answer()
 
-     page_index = int(query.data.split("|")[1])
-     if page_index < 0:
-         return
+    page_index = int(query.data.split("|")[1])
+    if page_index < 0:
+        return
 
-     text, reply_markup = get_topics_menu(page_index)
-     try:
-         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-     except telegram.error.BadRequest as e:
-         if str(e).startswith("Message is not modified"):
-             pass
-
+    text, reply_markup = get_topics_menu(page_index)
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    except telegram.error.BadRequest as e:
+        if str(e).startswith("Message is not modified"):
+            pass
+    mp.track(user_id, 'show_topics_callback_handle')
 
 async def show_topics_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
@@ -469,6 +482,7 @@ async def show_topics_handle(update: Update, context: CallbackContext):
 
     text, reply_markup = get_topics_menu(0)
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'show_topics_handle')
 
 async def set_topics_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
@@ -483,6 +497,7 @@ async def set_topics_handle(update: Update, context: CallbackContext):
     db.start_new_dialog(user_id)
     message = f"let's discuss {topic}"
     await message_handle(update.callback_query, context, message=message, use_new_dialog_timeout=False, from_user=False)
+    mp.track(user_id, 'set_topics_handle')
 
 def total_spending(user_id):
     total_n_spent_dollars = 0
@@ -530,53 +545,6 @@ async def show_all_spending_handle(update: Update, context: CallbackContext):
         username = db.get_user_attribute(id, "username")
         text += f"{username} spent {total_spending(id)}\n"
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-async def show_balance_handle(update: Update, context: CallbackContext):
-    await register_user_if_not_exists(update, context, update.message.from_user)
-
-    user_id = update.message.from_user.id
-    db.set_user_attribute(user_id, "last_interaction", datetime.now())
-
-    # count total usage statistics
-    total_n_spent_dollars = 0
-    total_n_used_tokens = 0
-
-    n_used_tokens_dict = db.get_user_attribute(user_id, "n_used_tokens")
-    n_transcribed_seconds = db.get_user_attribute(user_id, "n_transcribed_seconds")
-    n_voice_generated_characters = db.get_user_attribute(user_id, "n_voice_generated_characters")
-
-    details_text = "🏷️ Details:\n"
-    for model_key in sorted(n_used_tokens_dict.keys()):
-        n_input_tokens, n_output_tokens = n_used_tokens_dict[model_key]["n_input_tokens"], n_used_tokens_dict[model_key]["n_output_tokens"]
-        total_n_used_tokens += n_input_tokens + n_output_tokens
-
-        n_input_spent_dollars = config.models["info"][model_key]["price_per_1000_input_tokens"] * (n_input_tokens / 1000)
-        n_output_spent_dollars = config.models["info"][model_key]["price_per_1000_output_tokens"] * (n_output_tokens / 1000)
-        total_n_spent_dollars += n_input_spent_dollars + n_output_spent_dollars
-
-        details_text += f"- {model_key}: <b>{n_input_spent_dollars + n_output_spent_dollars:.03f}$</b> / <b>{n_input_tokens + n_output_tokens} tokens</b>\n"
-
-    # voice recognition
-    voice_recognition_n_spent_dollars = config.models["info"]["whisper"]["price_per_1_min"] * (n_transcribed_seconds / 60)
-    if n_transcribed_seconds != 0:
-        details_text += f"- Whisper (voice recognition): <b>{voice_recognition_n_spent_dollars:.03f}$</b> / <b>{n_transcribed_seconds:.01f} seconds</b>\n"
-
-    total_n_spent_dollars += voice_recognition_n_spent_dollars
-
-    # voice generation
-
-    voice_generation_n_spent_dollars = config.models["info"]["voice_generation"]["price_per_1000_characters"] * (n_voice_generated_characters / 1000)
-    if n_transcribed_seconds != 0:
-        details_text += f"- Voice generation: <b>{voice_generation_n_spent_dollars:.03f}$</b> / <b>{n_voice_generated_characters} characters</b>\n"
-
-    total_n_spent_dollars += voice_generation_n_spent_dollars
-
-    text = f"You spent <b>{total_n_spent_dollars:.03f}$</b>\n"
-    text += f"You used <b>{total_n_used_tokens}</b> tokens\n\n"
-    text += details_text
-
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
 
 async def edited_message_handle(update: Update, context: CallbackContext):
     if update.edited_message.chat.type == "private":
@@ -658,10 +626,6 @@ def run_bot() -> None:
     application.add_handler(CallbackQueryHandler(show_topics_callback_handle, pattern="^show_topics"))
     application.add_handler(CallbackQueryHandler(set_topics_handle, pattern="^set_topics"))
 
-    # application.add_handler(CommandHandler("settings", settings_handle, filters=user_filter))
-    # application.add_handler(CallbackQueryHandler(set_settings_handle, pattern="^set_settings"))
-
-    # application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
 
     # admin commands
     application.add_handler(CommandHandler("spending", show_all_spending_handle, filters=admin_filter))
