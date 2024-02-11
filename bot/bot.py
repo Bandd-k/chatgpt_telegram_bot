@@ -368,6 +368,7 @@ async def is_previous_message_not_answered_yet(update: Update, context: Callback
     else:
         return False
 
+
 async def voice_message_handle(update: Update, context: CallbackContext):
     # check if bot was mentioned (for group chats)
     # context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
