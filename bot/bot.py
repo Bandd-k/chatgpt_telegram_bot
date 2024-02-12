@@ -77,7 +77,7 @@ For example: "{bot_username} write a poem about Telegram"
 reminder_tasks = {}
 
 async def send_reminder(context: CallbackContext, user_id: int):
-    reminder_time = 6 * 60 * 60  # 6 hours
+    reminder_time = 12 * 60 * 60  # 6 hours
     while True:
         await asyncio.sleep(reminder_time)
         current_model = db.get_user_attribute(user_id, "current_model")

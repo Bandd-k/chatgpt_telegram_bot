@@ -37,7 +37,7 @@ async def cool(update, context):
 async def understood(update, context):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(text="Ладно еще несколько вспомогательных. Но их лучше не использовать.")
+    await query.message.reply_text(text="Несколько вспомогательных команд. Но их лучше не использовать.")
     await query.message.reply_text("/new - начать новый разговор.\n/topics - выбрать какую-то тему.\n/dict Слово - Спросить определение слова.")
     await query.message.reply_text("Поясню")
     await query.message.reply_text("Хочешь новую тему - так и скажи Let's talk about the idea of an infinite universe")
@@ -61,7 +61,7 @@ async def ready(update, context):
 async def letsgo(update, context):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(text="Hey! My Russian Alter-EGO explained you the basics. Now let's talk. Tell me about yourself?")
+    await query.message.reply_text(text="Hey! My Russian alter ego has explained you the basics. Now let's talk. Tell me about yourself?")
     # This is the end of the conversation flow. You might want to set a different state or end the conversation.
     return ConversationHandler.END
 
