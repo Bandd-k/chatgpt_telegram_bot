@@ -333,8 +333,14 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                     # update n_voice_generated_characters
                     db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
+                    try:
+                        await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
+                    except Exception as e:
+                        if "Voice_messages_forbidden" in str(e):
+                            await update.message.reply_text("Вы заблокировали входящие аудиосообщения! Дайте разрешение на аудиосообщения или выключите их с помощью команды /voice")
+                        else:
+                            raise
 
-                    await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
 
                 await update.message.chat.send_action(action="typing")
                 # send hidden transcription
