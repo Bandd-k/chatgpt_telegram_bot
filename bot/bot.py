@@ -51,7 +51,7 @@ user_tasks = {}
 HELP_MESSAGE = """Commands:
 ⚪ /new – Start new dialog
 ⚪ /voice – Toggle voice answers
-⚪ /topis – Choose topic to discuss
+⚪ /topics – Choose topic to discuss
 ⚪ /dict word – Show dictionary for the word
 ⚪ /help – Show help
 
@@ -74,6 +74,33 @@ To get a reply from the bot in the chat – @ <b>tag</b> it or <b>reply</b> to i
 For example: "{bot_username} write a poem about Telegram"
 """
 
+reminder_tasks = {}
+
+async def send_reminder(context: CallbackContext, user_id: int):
+    reminder_time = 6 * 60 * 60  # 6 hours
+    while True:
+        await asyncio.sleep(reminder_time)
+        current_model = db.get_user_attribute(user_id, "current_model")
+        chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+        dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+        _message = f"*Student has not replied for {reminder_time / 3600} hours"
+        answer, _, _ = await chatgpt_instance.send_message(
+            _message,
+            dialog_messages=dialog_messages,
+            chat_mode="general_english"
+        )
+        await context.bot.send_message(user_id, answer)
+        new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
+        db.set_dialog_messages(
+            user_id,
+            dialog_messages + [new_dialog_message],
+            dialog_id=None
+        )
+
+        mp.track(user_id, 'send_reminder', {
+            "reminder_time": reminder_time,
+        })
+        reminder_time *= 1.5 
 
 def split_text_into_chunks(text, chunk_size):
     for i in range(0, len(text), chunk_size):
@@ -236,6 +263,10 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         user_id = update.from_user.id
 
 
+    if user_id in reminder_tasks:
+        reminder_tasks[user_id].cancel()  # cancel the old reminder task
+    reminder_tasks[user_id] = asyncio.create_task(send_reminder(context, user_id))  # schedule a new reminder task
+
     chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
 
     async def message_handle_fn():
@@ -260,6 +291,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
             chatgpt_instance = openai_utils.ChatGPT(model=current_model)
 
+            # todo async
             # send correction check response 
             if len(dialog_messages):
                 await update.message.chat.send_action(action="typing")
@@ -270,7 +302,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                 Student: {_message}
                 """
 
-                correction_answer, (x, y), z = await chatgpt_instance.send_message(
+                correction_answer, _, _ = await chatgpt_instance.send_message(
                     message_to_check_correction,
                     dialog_messages=[],
                     chat_mode="correction_check"
@@ -330,6 +362,10 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         except Exception as e:
             error_text = f"Something went wrong during completion. Reason: {e}"
             logger.error(error_text)
+            mp.track(user_id, 'Error', {
+                "function": "message_handle_fn",
+                "error": error_text
+            })
             await update.message.reply_text(error_text)
             return
 
@@ -354,6 +390,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         finally:
             if user_id in user_tasks:
                 del user_tasks[user_id]
+
     mp.track(user_id, 'message_handle')
 
 
@@ -470,6 +507,10 @@ async def show_topics_callback_handle(update: Update, context: CallbackContext):
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     except telegram.error.BadRequest as e:
+        mp.track(user_id, 'Error', {
+            "function": "show_topics_callback_handle",
+            "error": e
+        })
         if str(e).startswith("Message is not modified"):
             pass
     mp.track(user_id, 'show_topics_callback_handle')
@@ -555,6 +596,10 @@ async def edited_message_handle(update: Update, context: CallbackContext):
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    mp.track(update.message.from_user.id, 'Error', {
+        "function": "error_handle",
+        "error": context.error
+    })
 
     try:
         # collect error message

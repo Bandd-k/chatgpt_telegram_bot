@@ -12,13 +12,13 @@ OPENAI_COMPLETION_OPTIONS = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
-    "timeout": 150.0,
+    "timeout": 604800.0, # one week
 }
 
 class ChatGPT:
     def __init__(self, model="gpt-4"):
         assert model in {"text-davinci-003", "gpt-3.5-turbo-16k", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"}, f"Unknown model: {model}"
-        self.model = "gpt-4-1106-preview"
+        self.model = "gpt-4"
 
     async def send_message(self, message, dialog_messages=[], chat_mode="general_english"):
         if chat_mode not in config.chat_modes.keys():
@@ -141,7 +141,7 @@ OPENAI_DICT_COMPLETION_OPTIONS = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
-    "timeout": 150.0,
+    "timeout": 604800.0,
 }
 
 async def dictionary(text):
