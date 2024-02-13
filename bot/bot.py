@@ -77,7 +77,7 @@ For example: "{bot_username} write a poem about Telegram"
 reminder_tasks = {}
 
 async def send_reminder(context: CallbackContext, user_id: int):
-    reminder_time = 12 * 60 * 60  # 12 hours
+    reminder_time = 24 * 60 * 60  # 24 hours
     while True:
         await asyncio.sleep(reminder_time)
         current_model = db.get_user_attribute(user_id, "current_model")
@@ -87,20 +87,18 @@ async def send_reminder(context: CallbackContext, user_id: int):
         answer, _, _ = await chatgpt_instance.send_message(
             _message,
             dialog_messages=dialog_messages,
-            chat_mode="general_english"
+            chat_mode="reminder"
         )
         await context.bot.send_message(user_id, answer)
-        new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
+        new_dialog_message = {"user": "", "bot": answer, "date": datetime.now()}
         db.set_dialog_messages(
             user_id,
             dialog_messages + [new_dialog_message],
             dialog_id=None
         )
 
-        mp.track(user_id, 'send_reminder', {
-            "reminder_time": reminder_time,
-        })
-        reminder_time *= 1.5 
+        mp.track(user_id, 'send_reminder')
+
 
 def split_text_into_chunks(text, chunk_size):
     for i in range(0, len(text), chunk_size):
