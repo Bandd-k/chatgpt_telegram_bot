@@ -47,31 +47,19 @@ logger = logging.getLogger(__name__)
 user_semaphores = {}
 user_tasks = {}
 
-# test
-HELP_MESSAGE = """Commands:
-⚪ /new – Start new dialog
-⚪ /voice – Toggle voice answers
-⚪ /topics – Choose topic to discuss
-⚪ /dict word – Show dictionary for the word
-⚪ /help – Show help
+HELP_MESSAGE = """Команды:
+⚪ /new – Начать новый диалог
+⚪ /voice – Включить/выключить голосовые ответы
+⚪ /topics – Выбрать тему для обсуждения
+⚪ /dict слово – Показать словарь для слова
+⚪ /help – Показать помощь
 
-🎤 Try to use <b>Voice Messages</b> instead of text
-🤓 Don't hesitate to ask anything. Reprase, translation, grammar rule etc.
-⏰ Speak a lot. Your goal is to answer very descriptive and use complex sentences.
-❤️ Ask to change topic if you want. Don't afraid to offend bot feelings.
+🎤 Попробуйте использовать <b>Голосовые сообщения</b> вместо текста
+🤓 Не стесняйтесь задавать любые вопросы. Новые фразы, переводы слов, грамматические правила и т.д.
+⏰ Говорите много. Ваша цель - отвечать очень подробно и использовать сложные предложения.
+❤️ Попросите сменить тему, если хотите. Не бойтесь обидеть чувства бота.
 
-Engage with the AI English Tutor like you would with a native speaker. The Tutor will correct critical mistakes, and if you don't understand something, feel free to ask it to rephrase. The Tutor can also translate, but reserve this for critical situations where understanding is essential.
-"""
-
-HELP_GROUP_CHAT_MESSAGE = """You can add bot to any <b>group chat</b> to help and entertain its participants!
-
-Instructions (see <b>video</b> below):
-1. Add the bot to the group chat
-2. Make it an <b>admin</b>, so that it can see messages (all other rights can be restricted)
-3. You're awesome!
-
-To get a reply from the bot in the chat – @ <b>tag</b> it or <b>reply</b> to its message.
-For example: "{bot_username} write a poem about Telegram"
+Взаимодействуйте с AI English Tutor, как вы бы делали это с носителем языка. Бот исправит критические ошибки, и если вы что-то не понимаете, не стесняйтесь просить его перефразировать. Бот также может переводить, но оставьте это для критических ситуаций, когда понимание является существенным.
 """
 
 reminder_tasks = {}
@@ -187,7 +175,7 @@ async def voice_handle(update: Update, context: CallbackContext):
     voice = not db.get_user_attribute(user_id, "voice_mode")
     db.set_user_attribute(user_id, "voice_mode", voice)
 
-    answer = f"Bot voice is " + ("enabled" if voice else "disabled")
+    answer = f"Голосовые сообщения от бота <b>" + ("включены" if voice else "выключены") + "</b>"
 
     await update.message.reply_text(answer, parse_mode=ParseMode.HTML)
     mp.track(user_id, 'voice_handle')
