@@ -46,7 +46,7 @@ STEPS = [
         "button": "Let's start!",
     },
     {
-        "text": ["Now let's finally chat in English! Please tell me about yourself! Where are you from? What do you like to do in your free time?"],
+        "text": ["Now let's finally chat in English! Please tell me about yourself! What is your name? Where are you from?"],
     }
 ]
 
