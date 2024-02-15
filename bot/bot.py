@@ -4,7 +4,7 @@ import asyncio
 import traceback
 import html
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import openai
 import tempfile
 from pathlib import Path
@@ -52,6 +52,7 @@ HELP_MESSAGE = """Команды:
 ⚪ /voice – Включить/выключить голосовые ответы
 ⚪ /topics – Выбрать тему для обсуждения
 ⚪ /dict слово – Показать словарь для слова
+⚪ /stats - показывает вашу статистику
 ⚪ /help – Показать помощь
 
 🎤 Попробуйте использовать <b>Голосовые сообщения</b> вместо текста
@@ -142,6 +143,18 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
     if db.get_user_attribute(user.id, "n_voice_generated_characters") is None:
         db.set_user_attribute(user.id, "n_voice_generated_characters", 0)
 
+    # words said
+    if db.get_user_attribute(user.id, "n_words_said") is None:
+        db.set_user_attribute(user.id, "n_words_said", 0)
+
+    # max streak
+    if db.get_user_attribute(user.id, "n_max_streak") is None:
+        db.set_user_attribute(user.id, "n_max_streak", 1)
+
+    # current streak start
+    if db.get_user_attribute(user.id, "current_streak_start") is None:
+        db.set_user_attribute(user.id, "current_streak_start", datetime.now())
+
     # image generation
     if db.get_user_attribute(user.id, "n_generated_images") is None:
         db.set_user_attribute(user.id, "n_generated_images", 0)
@@ -179,6 +192,29 @@ async def voice_handle(update: Update, context: CallbackContext):
 
     await update.message.reply_text(answer, parse_mode=ParseMode.HTML)
     mp.track(user_id, 'voice_handle')
+
+async def stats_handle(update: Update, context: CallbackContext):
+    await register_user_if_not_exists(update, context, update.message.from_user)
+    user_id = update.message.from_user.id
+    update_streak(user_id)
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
+
+    n_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
+    n_max_streak = db.get_user_attribute(user_id, "n_max_streak") or 0
+    current_streak_start = db.get_user_attribute(user_id, "current_streak_start") or datetime.now()
+
+    difference = datetime.now() - current_streak_start
+    # Get the number of days from the difference
+    number_of_days = difference.days + 1
+
+    info_string = (
+        f"Number of Words Said: {n_words_said}\n"
+        f"Maximum Streak: {n_max_streak}\n"
+        f"Current Streak: {number_of_days}"
+    )
+
+    await update.message.reply_text(info_string, parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'stats_handle')
 
 
 async def dict_handle(update: Update, context: CallbackContext):
@@ -224,6 +260,26 @@ async def help_handle(update: Update, context: CallbackContext):
     await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.HTML)
     mp.track(user_id, 'help_handle')
 
+def update_streak(user_id):
+    n_max_streak = db.get_user_attribute(user_id, "n_max_streak")
+    if n_max_streak is None:
+        db.set_user_attribute(user_id, "n_max_streak", 1)
+
+    current_streak_start = db.get_user_attribute(user_id, "current_streak_start")
+    if current_streak_start is None:
+        db.set_user_attribute(user_id, "current_streak_start", datetime.now())
+        return
+
+    n_max_streak = db.get_user_attribute(user_id, "n_max_streak")
+    last_message_timestamp = db.get_user_attribute(user_id, "last_message_timestamp") or datetime.now()
+    if datetime.now() - last_message_timestamp > timedelta(hours=24):
+        # reset streak
+        difference = last_message_timestamp - current_streak_start
+        number_of_days = difference.days
+        db.set_user_attribute(user_id, "n_max_streak", max(n_max_streak, number_of_days + 1))
+        db.set_user_attribute(user_id, "current_streak_start", datetime.now())
+
+
 async def message_handle(update: Update, context: CallbackContext, message=None, use_new_dialog_timeout=True, from_user = True):    
     # check if bot was mentioned (for group chats)
     if not await is_bot_mentioned(update, context):
@@ -261,7 +317,15 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
             if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
                 db.start_new_dialog(user_id)
                 await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
+        
+        #update statistics
+        current_word_said = db.get_user_attribute(user_id, "n_words_said") or 0
+        words_count = len(_message.split())
+        db.set_user_attribute(user_id, "n_words_said", current_word_said + words_count)
+        update_streak(user_id)
+
         db.set_user_attribute(user_id, "last_interaction", datetime.now())
+        db.set_user_attribute(user_id, "last_message_timestamp", datetime.now())
 
         # in case of CancelledError
         n_input_tokens, n_output_tokens = 0, 0
@@ -409,7 +473,6 @@ async def voice_message_handle(update: Update, context: CallbackContext):
     if await is_previous_message_not_answered_yet(update, context): return
 
     user_id = update.message.from_user.id
-    db.set_user_attribute(user_id, "last_interaction", datetime.now())
 
     voice = update.message.voice
     voice_file = await context.bot.get_file(voice.file_id)
@@ -621,6 +684,7 @@ async def post_init(application: Application):
         BotCommand("/voice", "Switch voice mode"),
         BotCommand("/topics", "Show topics for discussion"),
         BotCommand("/dict", "Show dictionary for the word"),
+        BotCommand("/stats", "Show stats"),
         BotCommand("/help", "Show help message"),
     ])
 
@@ -663,6 +727,8 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("topics", show_topics_handle, filters=user_filter))
     application.add_handler(CallbackQueryHandler(show_topics_callback_handle, pattern="^show_topics"))
     application.add_handler(CallbackQueryHandler(set_topics_handle, pattern="^set_topics"))
+
+    application.add_handler(CommandHandler("stats", stats_handle, filters=user_filter))
 
 
     # admin commands
