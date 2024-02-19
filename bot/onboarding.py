@@ -53,7 +53,18 @@ STEPS = [
 async def handler(update, context, step_index):
     step = STEPS[step_index]
     query = update
-    if step_index > 0 :
+    if step_index == 0:
+        tracking_id = 0
+        if context.args and len(context.args):
+            tracking_id = context.args[0]
+        mp.track(update.message.from_user.id, 'onboarding', {
+            "step": str(step_index),
+            "tracking_id": tracking_id
+        })
+        mp.people_set(update.message.from_user.id, {
+            "tracking_id": tracking_id
+        })
+    else:
         query = update.callback_query
         await query.answer()
         mp.track(update.callback_query.from_user.id, 'onboarding', {
