@@ -208,9 +208,9 @@ async def stats_handle(update: Update, context: CallbackContext):
     number_of_days = difference.days + 1
 
     info_string = (
-        f"Number of Words Said: {n_words_said}\n"
-        f"Maximum Streak: {n_max_streak}\n"
-        f"Current Streak: {number_of_days}"
+        f"📝 Word Count: <b>{n_words_said}</b>\n"
+        f"🏆 Maximum Streak: <b>{n_max_streak}</b>\n"
+        f"⏳ Current Streak: <b>{number_of_days}</b>"
     )
 
     await update.message.reply_text(info_string, parse_mode=ParseMode.HTML)
