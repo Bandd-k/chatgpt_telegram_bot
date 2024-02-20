@@ -14,9 +14,9 @@ OPENAI_COMPLETION_OPTIONS = {
 }
 
 class ChatGPT:
-    def __init__(self, model="gpt-4"):
+    def __init__(self, model="gpt-4-1106-preview"):
         assert model in {"text-davinci-003", "gpt-3.5-turbo-16k", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"}, f"Unknown model: {model}"
-        self.model = "gpt-4"
+        self.model = "gpt-4-1106-preview"
 
     async def send_message(self, message, dialog_messages=[], chat_mode="general_english"):
         if chat_mode not in config.chat_modes.keys():
