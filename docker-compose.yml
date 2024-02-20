@@ -23,7 +23,7 @@ services:
 
   mongo_express:
     container_name: mongo-express
-    image: mongo-express:latest
+    image: mongo-express:1.0.0-alpha.4
     restart: always
     ports:
       - ${MONGO_EXPRESS_PORT:-8081}:${MONGO_EXPRESS_PORT:-8081}
