@@ -1,6 +1,4 @@
 import config
-
-import tiktoken
 import openai
 from openai import AsyncOpenAI
 
@@ -12,7 +10,7 @@ OPENAI_COMPLETION_OPTIONS = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
-    "timeout": 604800.0, # one week
+    "timeout": 150.0,
 }
 
 class ChatGPT:
@@ -84,40 +82,6 @@ class ChatGPT:
         answer = answer.strip()
         return answer
 
-    def _count_tokens_from_messages(self, messages, answer, model="gpt-3.5-turbo"):
-        encoding = tiktoken.encoding_for_model(model)
-
-        if model == "gpt-3.5-turbo-16k":
-            tokens_per_message = 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-            tokens_per_name = -1  # if there's a name, the role is omitted
-        elif model == "gpt-3.5-turbo":
-            tokens_per_message = 4
-            tokens_per_name = -1
-        elif model == "gpt-4":
-            tokens_per_message = 3
-            tokens_per_name = 1
-        elif model == "gpt-4-1106-preview":
-            tokens_per_message = 3
-            tokens_per_name = 1
-        else:
-            raise ValueError(f"Unknown model: {model}")
-
-        # input
-        n_input_tokens = 0
-        for message in messages:
-            n_input_tokens += tokens_per_message
-            for key, value in message.items():
-                n_input_tokens += len(encoding.encode(value))
-                if key == "name":
-                    n_input_tokens += tokens_per_name
-
-        n_input_tokens += 2
-
-        # output
-        n_output_tokens = 1 + len(encoding.encode(answer))
-
-        return n_input_tokens, n_output_tokens
-
 async def transcribe_audio(audio_file) -> str:
     r = await aclient.audio.transcriptions.create(model="whisper-1", file=audio_file, language="en")
     return r.text or ""
@@ -141,7 +105,7 @@ OPENAI_DICT_COMPLETION_OPTIONS = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
-    "timeout": 604800.0,
+    "timeout": 150.0,
 }
 
 async def dictionary(text):
