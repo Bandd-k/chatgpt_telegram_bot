@@ -1,6 +1,8 @@
 import config
 import openai
 from openai import AsyncOpenAI
+import logging
+logger = logging.getLogger(__name__)
 
 aclient = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_api_base)
 
@@ -28,6 +30,8 @@ class ChatGPT:
             try:
                 if self.model in {"gpt-3.5-turbo-16k", "gpt-3.5-turbo", "gpt-4", "gpt-4-1106-preview"}:
                     messages = self._generate_prompt_messages(message, dialog_messages, chat_mode)
+                    # logger.error('messages')
+                    # logger.error(messages)
                     r = await aclient.chat.completions.create(
                         model=self.model,
                         messages=messages,

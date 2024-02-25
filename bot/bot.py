@@ -72,7 +72,7 @@ async def send_reminder(context: CallbackContext, user_id: int):
         current_model = db.get_user_attribute(user_id, "current_model")
         chatgpt_instance = openai_utils.ChatGPT(model=current_model)
         dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
-        _message = f"*Student has not replied for {reminder_time / 3600} hours"
+        _message = ""
         answer, _, _ = await chatgpt_instance.send_message(
             _message,
             dialog_messages=dialog_messages,
