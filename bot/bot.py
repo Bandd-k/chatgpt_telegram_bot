@@ -64,6 +64,8 @@ HELP_MESSAGE = """Команды:
 """
 
 reminder_tasks = {}
+send_survey_tasks = {}
+last_message_before_survey = {}
 
 async def send_reminder(context: CallbackContext, user_id: int):
     reminder_time = 24 * 60 * 60  # 24 hours
@@ -85,6 +87,18 @@ async def send_reminder(context: CallbackContext, user_id: int):
             dialog_messages + [new_dialog_message],
             dialog_id=None
         )
+
+        survey_sent = db.get_user_attribute(user_id, "survey_sent")
+
+        # if reminder is sent after unanswered survey (did not press buttons), 
+        # set as if the survey was not sent. so that the survey will be resent.
+        if survey_sent == 1:
+            db.set_user_attribute(user_id, "survey_sent", 0)
+
+        # if reminder is sent after unanswered survey (pressed button but did not type anything), 
+        # set as if the user have completed the survey
+        if survey_sent == 2:
+            db.set_user_attribute(user_id, "survey_sent", 3)
 
         mp.track(user_id, 'send_reminder')
 
@@ -304,153 +318,170 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
     else:
         user_id = update.from_user.id
 
-
     if user_id in reminder_tasks:
-        reminder_tasks[user_id].cancel()  # cancel the old reminder task
+        # cancel the old reminder task
+        reminder_tasks[user_id].cancel()
     reminder_tasks[user_id] = asyncio.create_task(send_reminder(context, user_id))  # schedule a new reminder task
 
-    chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
+    if user_id in send_survey_tasks:
+        # reset send survey timer
+        send_survey_tasks[user_id].cancel()
+    # if no survey was sent and the user is eligible
+    survey_sent = db.get_user_attribute(user_id, "survey_sent")
+    total_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
+    if (survey_sent == 0 or survey_sent == None) and (total_words_said > 50):
+        # send survey in 15 minutes
+        send_survey_tasks[user_id] = asyncio.create_task(send_survey_buttons(update))
 
-    async def message_handle_fn():
-        # new dialog timeout
-        if use_new_dialog_timeout:
-            if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
-                db.start_new_dialog(user_id)
-                await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
-        
-        #update statistics
-        current_word_said = db.get_user_attribute(user_id, "n_words_said") or 0
-        words_count = len(_message.split())
-        db.set_user_attribute(user_id, "n_words_said", current_word_said + words_count)
-        update_streak(user_id)
+    if survey_sent == 2: # user pressed survey button and bot is waiting for writted feedback
+        await get_survey_text_answer(update)
 
-        db.set_user_attribute(user_id, "last_interaction", datetime.now())
-        db.set_user_attribute(user_id, "last_message_timestamp", datetime.now())
+    else: # handle regular messages
+        chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
 
-        # in case of CancelledError
-        n_input_tokens, n_output_tokens = 0, 0
-        current_model = db.get_user_attribute(user_id, "current_model")
-        voice_mode = db.get_user_attribute(user_id, "voice_mode")
-
-        try:
-            if _message is None or len(_message) == 0:
-                 await update.message.reply_text("🥲 You sent <b>empty message</b>. Please, try again!", parse_mode=ParseMode.HTML)
-                 return
-
-            dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
-
-            chatgpt_instance = openai_utils.ChatGPT(model=current_model)
-
-            # todo async
-            # send correction check response 
-            if len(dialog_messages):
-                await update.message.chat.send_action(action="typing")
-                last_message = dialog_messages[-1]
-                message_to_check_correction = f"""
-                Student: {last_message['user']}
-                Teacher: {last_message['bot']}
-                Student: {_message}
-                """
-
-                correction_answer, _, _ = await chatgpt_instance.send_message(
-                    message_to_check_correction,
-                    dialog_messages=[],
-                    chat_mode="correction_check"
-                )
-                if correction_answer != "no_reply":
-                    await update.message.reply_text(correction_answer[:4096])
-
-            answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
-                _message,
-                dialog_messages=dialog_messages,
-                chat_mode=chat_mode
-            )
-
-            if voice_mode:
-                # send audio answer  
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    await update.message.chat.send_action(action="record_audio")
-                    tmp_dir = Path(tmp_dir)
-                    voice_mp3_path = tmp_dir / "voice.mp3"
-                    voice_ogg_path = tmp_dir / "voice.ogg"
-                    voice_part = answer.split("<b>")[0]
-                    await openai_utils.generate_audio(voice_part, voice_mp3_path)
-                    # Convert the MP3 file to OGG format.
-                    # make async?
-                    audio_segment = pydub.AudioSegment.from_mp3(voice_mp3_path)
-
-                    audio_segment.export(voice_ogg_path, format="ogg", codec = "libopus")
-
-                    # update n_voice_generated_characters
-                    db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
-                    try:
-                        await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
-                    except Exception as e:
-                        if "Voice_messages_forbidden" in str(e):
-                            await update.message.reply_text("Вы заблокировали входящие аудиосообщения! Дайте разрешение на аудиосообщения или выключите их с помощью команды /voice")
-                        else:
-                            raise
-
-
-                await update.message.chat.send_action(action="typing")
-                # send hidden transcription
-                await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
+        async def message_handle_fn():
+            # new dialog timeout
+            if use_new_dialog_timeout:
+                if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
+                    db.start_new_dialog(user_id)
+                    await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
             
+            #update statistics
+            words_count = len(_message.split())
+            db.set_user_attribute(user_id, "n_words_said", total_words_said + words_count)
+            update_streak(user_id)
+
+            db.set_user_attribute(user_id, "last_interaction", datetime.now())
+            db.set_user_attribute(user_id, "last_message_timestamp", datetime.now())
+
+            # in case of CancelledError
+            n_input_tokens, n_output_tokens = 0, 0
+            current_model = db.get_user_attribute(user_id, "current_model")
+            voice_mode = db.get_user_attribute(user_id, "voice_mode")
+
+            try:
+                if _message is None or len(_message) == 0:
+                    await update.message.reply_text("🥲 You sent <b>empty message</b>. Please, try again!", parse_mode=ParseMode.HTML)
+                    return
+
+                dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+
+                chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+
+                # todo async
+                # send correction check response 
+                if len(dialog_messages):
+                    await update.message.chat.send_action(action="typing")
+                    last_message = dialog_messages[-1]
+                    message_to_check_correction = f"""
+                    Student: {last_message['user']}
+                    Teacher: {last_message['bot']}
+                    Student: {_message}
+                    """
+
+                    correction_answer, _, _ = await chatgpt_instance.send_message(
+                        message_to_check_correction,
+                        dialog_messages=[],
+                        chat_mode="correction_check"
+                    )
+                    if correction_answer != "no_reply":
+                        await update.message.reply_text(correction_answer[:4096])
+
+                answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
+                    _message,
+                    dialog_messages=dialog_messages,
+                    chat_mode=chat_mode
+                )
+
+                # Chatty will reply to this message at the end of the survey to remind about the conversation 
+                last_message_to_reply_to_after_survey = update.message
+
+                if voice_mode:
+                    # send audio answer  
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        await update.message.chat.send_action(action="record_audio")
+                        tmp_dir = Path(tmp_dir)
+                        voice_mp3_path = tmp_dir / "voice.mp3"
+                        voice_ogg_path = tmp_dir / "voice.ogg"
+                        voice_part = answer.split("<b>")[0]
+                        await openai_utils.generate_audio(voice_part, voice_mp3_path)
+                        # Convert the MP3 file to OGG format.
+                        # make async?
+                        audio_segment = pydub.AudioSegment.from_mp3(voice_mp3_path)
+
+                        audio_segment.export(voice_ogg_path, format="ogg", codec = "libopus")
+
+                        # update n_voice_generated_characters
+                        db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
+                        try:
+                            last_message_to_reply_to_after_survey = await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
+                        except Exception as e:
+                            if "Voice_messages_forbidden" in str(e):
+                                await update.message.reply_text("Вы заблокировали входящие аудиосообщения! Дайте разрешение на аудиосообщения или выключите их с помощью команды /voice")
+                            else:
+                                raise
+
+                    await update.message.chat.send_action(action="typing")
+                    # send hidden transcription
+                    await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
+                
+                else:
+                    await update.message.chat.send_action(action="typing")
+                    last_message_to_reply_to_after_survey = await update.message.reply_text(answer[:4096])
+
+                # update user data
+                new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
+                db.set_dialog_messages(
+                    user_id,
+                    db.get_dialog_messages(user_id, dialog_id=None) + [new_dialog_message],
+                    dialog_id=None
+                )
+
+                last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
+
+                db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+
+            except asyncio.CancelledError:
+                # note: intermediate token updates only work when enable_message_streaming=True (config.yml)
+                db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+                raise
+
+            except Exception as e:
+                error_text = f"Something went wrong during completion. Reason: {e}"
+                logger.error(error_text)
+                mp.track(user_id, 'Error', {
+                    "function": "message_handle_fn",
+                    "error": error_text
+                })
+                await update.message.reply_text(error_text)
+                return
+
+            # send message if some messages were removed from the context
+            if n_first_dialog_messages_removed > 0:
+                if n_first_dialog_messages_removed == 1:
+                    text = "✍️ <i>Note:</i> Your current dialog is too long, so your <b>first message</b> was removed from the context.\n Send /new command to start new dialog"
+                else:
+                    text = f"✍️ <i>Note:</i> Your current dialog is too long, so <b>{n_first_dialog_messages_removed} first messages</b> were removed from the context.\n Send /new command to start new dialog"
+                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+        async with user_semaphores[user_id]:
+            task = asyncio.create_task(message_handle_fn())
+            user_tasks[user_id] = task
+
+            try:
+                await task
+            except asyncio.CancelledError:
+                await update.message.reply_text("✅ Canceled", parse_mode=ParseMode.HTML)
             else:
-                await update.message.chat.send_action(action="typing")
-                await update.message.reply_text(answer[:4096])
+                pass
+            finally:
+                if user_id in user_tasks:
+                    del user_tasks[user_id]
 
-            # update user data
-            new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
-            db.set_dialog_messages(
-                user_id,
-                db.get_dialog_messages(user_id, dialog_id=None) + [new_dialog_message],
-                dialog_id=None
-            )
-
-            db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
-
-        except asyncio.CancelledError:
-            # note: intermediate token updates only work when enable_message_streaming=True (config.yml)
-            db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
-            raise
-
-        except Exception as e:
-            error_text = f"Something went wrong during completion. Reason: {e}"
-            logger.error(error_text)
-            mp.track(user_id, 'Error', {
-                "function": "message_handle_fn",
-                "error": error_text
-            })
-            await update.message.reply_text(error_text)
-            return
-
-        # send message if some messages were removed from the context
-        if n_first_dialog_messages_removed > 0:
-            if n_first_dialog_messages_removed == 1:
-                text = "✍️ <i>Note:</i> Your current dialog is too long, so your <b>first message</b> was removed from the context.\n Send /new command to start new dialog"
-            else:
-                text = f"✍️ <i>Note:</i> Your current dialog is too long, so <b>{n_first_dialog_messages_removed} first messages</b> were removed from the context.\n Send /new command to start new dialog"
-            await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-    async with user_semaphores[user_id]:
-        task = asyncio.create_task(message_handle_fn())
-        user_tasks[user_id] = task
-
-        try:
-            await task
-        except asyncio.CancelledError:
-            await update.message.reply_text("✅ Canceled", parse_mode=ParseMode.HTML)
-        else:
-            pass
-        finally:
-            if user_id in user_tasks:
-                del user_tasks[user_id]
-
-    mp.track(user_id, 'message_handle')
-
+        mp.track(user_id, 'message_handle')
 
 async def is_previous_message_not_answered_yet(update: Update, context: CallbackContext):
+
     await register_user_if_not_exists(update, context, update.message.from_user)
 
     user_id = update.message.from_user.id
@@ -581,6 +612,18 @@ async def show_topics_handle(update: Update, context: CallbackContext):
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     mp.track(user_id, 'show_topics_handle')
 
+async def send_survey_buttons(update: Update):
+    await asyncio.sleep(15 * 60) # send after 15 minutes of no messages
+    user_id = update.message.from_user.id
+    db.set_user_attribute(user_id, "survey_sent", 1)
+
+    text = "Спасибо, что общаетесь со мной! Насколько вероятно, что вы порекомендуете меня своим друзьям? Оцените, пожалуйста, от 0 до 10. Ваша оценка останется анонимной, но поможет моим разработчикам сделать меня еще лучше!"
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"survey_button_press|{i}")] for i in range(11)]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'send_survey_buttons')
+
 async def set_topics_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update.callback_query, context, update.callback_query.from_user)
     user_id = update.callback_query.from_user.id
@@ -595,6 +638,41 @@ async def set_topics_handle(update: Update, context: CallbackContext):
     message = f"let's discuss {topic}"
     await message_handle(update.callback_query, context, message=message, use_new_dialog_timeout=False, from_user=False)
     mp.track(user_id, 'set_topics_handle')
+
+async def survey_button_press_handle(update: Update, context: CallbackContext):
+    user_id = update.callback_query.from_user.id
+    db.set_user_attribute(user_id, "survey_sent", 2)
+    query = update.callback_query
+    await query.answer()
+    survey_answer = query.data.split("|")[1]
+
+    mp.track(user_id, 'survey_value', {
+        "survey_button": survey_answer
+    })
+    mp.people_set(user_id, {
+        'survey_button': survey_answer, 
+        'words_said_before_survey': db.get_user_attribute(user_id, "n_words_said"), 
+    })
+    db.set_user_attribute(user_id, "survey_button", survey_answer)
+
+    await query.message.reply_text("Благодарю за оценку! Теперь, пожалуйста, напишите в одном сообщении, что, по вашему мнению, можно улучшить, чтобы я стала еще лучше. После отправки сообщения мы автоматически продолжим наш диалог и практику английского!", parse_mode=ParseMode.HTML)
+    mp.track(user_id, 'survey_button_press_handle')
+
+async def get_survey_text_answer(update: Update):
+    user_id = update.message.from_user.id
+    db.set_user_attribute(user_id, "survey_sent", 3)
+
+    survey_text = update.message.text
+    mp.track(user_id, 'survey_value', {
+        "survey_text": survey_text
+    })
+    mp.people_set(user_id, {
+        'survey_text': survey_text, 
+    })
+    db.set_user_attribute(user_id, "survey_text", survey_text)
+
+    await update.message.reply_text("Отлично! Thank you so much! Теперь давайте продолжим наш разговор! 😊", reply_to_message_id=last_message_before_survey[user_id], parse_mode=ParseMode.HTML) 
+    mp.track(user_id, 'get_survey_text_answer')
 
 def total_spending(user_id):
     total_n_spent_dollars = 0
@@ -651,9 +729,9 @@ async def edited_message_handle(update: Update, context: CallbackContext):
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
-    mp.track(update.message.from_user.id, 'Error', {
+    mp.track(update.effective_chat.id, 'Error', {
         "function": "error_handle",
-        "error": context.error
+        "error": str(context.error)
     })
 
     try:
@@ -727,6 +805,7 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("topics", show_topics_handle, filters=user_filter))
     application.add_handler(CallbackQueryHandler(show_topics_callback_handle, pattern="^show_topics"))
     application.add_handler(CallbackQueryHandler(set_topics_handle, pattern="^set_topics"))
+    application.add_handler(CallbackQueryHandler(survey_button_press_handle, pattern="^survey_button_press"))
 
     application.add_handler(CommandHandler("stats", stats_handle, filters=user_filter))
 

@@ -57,7 +57,11 @@ class Database:
 
             "n_generated_images": 0,
             "n_voice_generated_characters": 0,
-            "n_transcribed_seconds": 0.0  # voice message transcription
+            "n_transcribed_seconds": 0.0,  # voice message transcription
+            "survey_sent": 0, # 0 = not sent. 1 = sent buttons. 2 = pressed a button. waiting for text feedback. 2 = answered
+            "n_words_said": 0,
+            "survey_button": None,
+            "survey_text": None,
         }
 
         if not self.check_if_user_exists(user_id):
