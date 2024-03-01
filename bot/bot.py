@@ -5,11 +5,9 @@ import traceback
 import html
 import json
 from datetime import datetime, timedelta
-import openai
 import tempfile
 from pathlib import Path
 import pydub
-import dictionary
 import onboarding
 
 import telegram
@@ -18,7 +16,8 @@ from telegram import (
     User,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    BotCommand
+    BotCommand,
+    WebAppInfo
 )
 from telegram.ext import (
     Application,
@@ -28,7 +27,8 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     AIORateLimiter,
-    filters
+    filters,
+    ContextTypes
 )
 from telegram.constants import ParseMode, ChatAction
 
@@ -39,6 +39,15 @@ import config
 import database
 import openai_utils
 
+from subgram import Subgram
+from subgram.constants import EventType
+
+subgram = Subgram(config.subgram_token)
+
+MANAGE_SUBSCRIPTION_CALLBACK_DATA = "manage_subscription"
+MANAGE_SUBSCRIPTION_MARKUP = InlineKeyboardMarkup([[
+    InlineKeyboardButton("Управление подпиской", callback_data=MANAGE_SUBSCRIPTION_CALLBACK_DATA)
+]])
 
 # setup
 db = database.Database()
@@ -241,7 +250,6 @@ async def dict_handle(update: Update, context: CallbackContext):
     try:
         input_parameter = context.args[0]
         # Perform your actions with input_parameter here
-        #response = dictionary.get_word_definition_markdown(input_parameter)
         response = await openai_utils.dictionary(input_parameter)
     except (IndexError, ValueError):
         response = 'Please provide an input parameter. Usage: /dict <input>'
@@ -327,158 +335,176 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         # reset send survey timer
         send_survey_tasks[user_id].cancel()
     # if no survey was sent and the user is eligible
-    survey_sent = db.get_user_attribute(user_id, "survey_sent")
-    total_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
-    if (survey_sent == 0 or survey_sent == None) and (total_words_said > 50):
+    survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
+    messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
+    if (survey_sent == 0) and (messages_sent_total > 10):
         # send survey in 15 minutes
         send_survey_tasks[user_id] = asyncio.create_task(send_survey_buttons(update))
 
     if survey_sent == 2: # user pressed survey button and bot is waiting for writted feedback
         await get_survey_text_answer(update)
 
-    else: # handle regular messages
-        chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
+    else: # handle regular messages                
+        messages_sent_today = db.get_user_attribute(user_id, "messages_sent_today") or 0
 
-        async def message_handle_fn():
-            # new dialog timeout
-            if use_new_dialog_timeout:
-                if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
-                    db.start_new_dialog(user_id)
-                    await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
-            
-            #update statistics
-            words_count = len(_message.split())
-            db.set_user_attribute(user_id, "n_words_said", total_words_said + words_count)
-            update_streak(user_id)
+        datetime_now = datetime.now()
+        last_message_timestamp = db.get_user_attribute(user_id, "last_message_timestamp") or datetime.now()
+        if (datetime_now.year, datetime_now.month, datetime_now.day) != (last_message_timestamp.year, last_message_timestamp.month, last_message_timestamp.day):
+            messages_sent_today = 0
 
-            db.set_user_attribute(user_id, "last_interaction", datetime.now())
-            db.set_user_attribute(user_id, "last_message_timestamp", datetime.now())
+        # inline subgram.has_access() check to not make requests until the message quota is used
+        if (messages_sent_total > 29 and messages_sent_today > 9) and not await subgram.has_access(
+            user_id=update.effective_user.id,
+            product_id=config.subgram_product_id,
+        ):
+            mp.track(user_id, 'no_subscription_block')
+            await update.message.reply_text("К сожалению, у Вас закончились бесплатные сообщения с Чатти на сегодня. Возвращайтесь завтра или подключите подписку для безлимитный сообщений!")
+            await manage_subscription(update, context)
+        else:
+            chat_mode = db.get_user_attribute(user_id, "current_chat_mode")
 
-            # in case of CancelledError
-            n_input_tokens, n_output_tokens = 0, 0
-            current_model = db.get_user_attribute(user_id, "current_model")
-            voice_mode = db.get_user_attribute(user_id, "voice_mode")
+            async def message_handle_fn():
+                # new dialog timeout
+                if use_new_dialog_timeout:
+                    if (datetime.now() - db.get_user_attribute(user_id, "last_interaction")).seconds > config.new_dialog_timeout and len(db.get_dialog_messages(user_id)) > 0:
+                        db.start_new_dialog(user_id)
+                        await update.message.reply_text(f"Starting new dialog due to timeout (<b>{config.chat_modes[chat_mode]['name']}</b> mode) ✅", parse_mode=ParseMode.HTML)
+                
+                #update statistics
+                words_count = len(_message.split())
+                db.set_user_attribute(user_id, "n_words_said", total_words_said + words_count)
+                update_streak(user_id)
 
-            try:
-                if _message is None or len(_message) == 0:
-                    await update.message.reply_text("🥲 You sent <b>empty message</b>. Please, try again!", parse_mode=ParseMode.HTML)
+                db.set_user_attribute(user_id, "messages_sent_total", messages_sent_total + 1)
+                db.set_user_attribute(user_id, "messages_sent_today", messages_sent_today + 1)
+                db.set_user_attribute(user_id, "last_interaction", datetime_now)
+                db.set_user_attribute(user_id, "last_message_timestamp", datetime_now)
+
+                # in case of CancelledError
+                n_input_tokens, n_output_tokens = 0, 0
+                current_model = db.get_user_attribute(user_id, "current_model")
+                voice_mode = db.get_user_attribute(user_id, "voice_mode")
+
+                try:
+                    if _message is None or len(_message) == 0:
+                        await update.message.reply_text("🥲 You sent <b>empty message</b>. Please, try again!", parse_mode=ParseMode.HTML)
+                        return
+
+                    dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+
+                    chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+
+                    # todo async
+                    # send correction check response 
+                    if len(dialog_messages):
+                        await update.message.chat.send_action(action="typing")
+                        last_message = dialog_messages[-1]
+                        message_to_check_correction = f"""
+                        Student: {last_message['user']}
+                        Teacher: {last_message['bot']}
+                        Student: {_message}
+                        """
+
+                        correction_answer, _, _ = await chatgpt_instance.send_message(
+                            message_to_check_correction,
+                            dialog_messages=[],
+                            chat_mode="correction_check"
+                        )
+                        if correction_answer != "no_reply":
+                            await update.message.reply_text(correction_answer[:4096])
+
+                    answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
+                        _message,
+                        dialog_messages=dialog_messages,
+                        chat_mode=chat_mode
+                    )
+
+                    # Chatty will reply to this message at the end of the survey to remind about the conversation 
+                    last_message_to_reply_to_after_survey = update.message
+
+                    if voice_mode:
+                        # send audio answer  
+                        with tempfile.TemporaryDirectory() as tmp_dir:
+                            await update.message.chat.send_action(action="record_audio")
+                            tmp_dir = Path(tmp_dir)
+                            voice_mp3_path = tmp_dir / "voice.mp3"
+                            voice_ogg_path = tmp_dir / "voice.ogg"
+                            voice_part = answer.split("<b>")[0]
+                            await openai_utils.generate_audio(voice_part, voice_mp3_path)
+                            # Convert the MP3 file to OGG format.
+                            # make async?
+                            audio_segment = pydub.AudioSegment.from_mp3(voice_mp3_path)
+
+                            audio_segment.export(voice_ogg_path, format="ogg", codec = "libopus")
+
+                            # update n_voice_generated_characters
+                            db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
+                            try:
+                                last_message_to_reply_to_after_survey = await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
+                            except Exception as e:
+                                if "Voice_messages_forbidden" in str(e):
+                                    await update.message.reply_text("Вы заблокировали входящие аудиосообщения! Дайте разрешение на аудиосообщения или выключите их с помощью команды /voice")
+                                else:
+                                    raise
+
+                        await update.message.chat.send_action(action="typing")
+                        # send hidden transcription
+                        await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
+                    
+                    else:
+                        await update.message.chat.send_action(action="typing")
+                        last_message_to_reply_to_after_survey = await update.message.reply_text(answer[:4096])
+
+                    # update user data
+                    new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
+                    db.set_dialog_messages(
+                        user_id,
+                        db.get_dialog_messages(user_id, dialog_id=None) + [new_dialog_message],
+                        dialog_id=None
+                    )
+
+                    last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
+
+                    db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+
+                except asyncio.CancelledError:
+                    # note: intermediate token updates only work when enable_message_streaming=True (config.yml)
+                    db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+                    raise
+
+                except Exception as e:
+                    error_text = f"Something went wrong during completion. Reason: {e}"
+                    logger.error(error_text)
+                    mp.track(user_id, 'Error', {
+                        "function": "message_handle_fn",
+                        "error": error_text
+                    })
+                    await update.message.reply_text(error_text)
                     return
 
-                dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+                # send message if some messages were removed from the context
+                if n_first_dialog_messages_removed > 0:
+                    if n_first_dialog_messages_removed == 1:
+                        text = "✍️ <i>Note:</i> Your current dialog is too long, so your <b>first message</b> was removed from the context.\n Send /new command to start new dialog"
+                    else:
+                        text = f"✍️ <i>Note:</i> Your current dialog is too long, so <b>{n_first_dialog_messages_removed} first messages</b> were removed from the context.\n Send /new command to start new dialog"
+                    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
-                chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+            async with user_semaphores[user_id]:
+                task = asyncio.create_task(message_handle_fn())
+                user_tasks[user_id] = task
 
-                # todo async
-                # send correction check response 
-                if len(dialog_messages):
-                    await update.message.chat.send_action(action="typing")
-                    last_message = dialog_messages[-1]
-                    message_to_check_correction = f"""
-                    Student: {last_message['user']}
-                    Teacher: {last_message['bot']}
-                    Student: {_message}
-                    """
-
-                    correction_answer, _, _ = await chatgpt_instance.send_message(
-                        message_to_check_correction,
-                        dialog_messages=[],
-                        chat_mode="correction_check"
-                    )
-                    if correction_answer != "no_reply":
-                        await update.message.reply_text(correction_answer[:4096])
-
-                answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
-                    _message,
-                    dialog_messages=dialog_messages,
-                    chat_mode=chat_mode
-                )
-
-                # Chatty will reply to this message at the end of the survey to remind about the conversation 
-                last_message_to_reply_to_after_survey = update.message
-
-                if voice_mode:
-                    # send audio answer  
-                    with tempfile.TemporaryDirectory() as tmp_dir:
-                        await update.message.chat.send_action(action="record_audio")
-                        tmp_dir = Path(tmp_dir)
-                        voice_mp3_path = tmp_dir / "voice.mp3"
-                        voice_ogg_path = tmp_dir / "voice.ogg"
-                        voice_part = answer.split("<b>")[0]
-                        await openai_utils.generate_audio(voice_part, voice_mp3_path)
-                        # Convert the MP3 file to OGG format.
-                        # make async?
-                        audio_segment = pydub.AudioSegment.from_mp3(voice_mp3_path)
-
-                        audio_segment.export(voice_ogg_path, format="ogg", codec = "libopus")
-
-                        # update n_voice_generated_characters
-                        db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
-                        try:
-                            last_message_to_reply_to_after_survey = await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
-                        except Exception as e:
-                            if "Voice_messages_forbidden" in str(e):
-                                await update.message.reply_text("Вы заблокировали входящие аудиосообщения! Дайте разрешение на аудиосообщения или выключите их с помощью команды /voice")
-                            else:
-                                raise
-
-                    await update.message.chat.send_action(action="typing")
-                    # send hidden transcription
-                    await update.message.reply_text(f'<span class="tg-spoiler">{answer[:4096]}</span>', parse_mode=ParseMode.HTML)
-                
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    await update.message.reply_text("✅ Canceled", parse_mode=ParseMode.HTML)
                 else:
-                    await update.message.chat.send_action(action="typing")
-                    last_message_to_reply_to_after_survey = await update.message.reply_text(answer[:4096])
+                    pass
+                finally:
+                    if user_id in user_tasks:
+                        del user_tasks[user_id]
 
-                # update user data
-                new_dialog_message = {"user": _message, "bot": answer, "date": datetime.now()}
-                db.set_dialog_messages(
-                    user_id,
-                    db.get_dialog_messages(user_id, dialog_id=None) + [new_dialog_message],
-                    dialog_id=None
-                )
-
-                last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
-
-                db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
-
-            except asyncio.CancelledError:
-                # note: intermediate token updates only work when enable_message_streaming=True (config.yml)
-                db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
-                raise
-
-            except Exception as e:
-                error_text = f"Something went wrong during completion. Reason: {e}"
-                logger.error(error_text)
-                mp.track(user_id, 'Error', {
-                    "function": "message_handle_fn",
-                    "error": error_text
-                })
-                await update.message.reply_text(error_text)
-                return
-
-            # send message if some messages were removed from the context
-            if n_first_dialog_messages_removed > 0:
-                if n_first_dialog_messages_removed == 1:
-                    text = "✍️ <i>Note:</i> Your current dialog is too long, so your <b>first message</b> was removed from the context.\n Send /new command to start new dialog"
-                else:
-                    text = f"✍️ <i>Note:</i> Your current dialog is too long, so <b>{n_first_dialog_messages_removed} first messages</b> were removed from the context.\n Send /new command to start new dialog"
-                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-        async with user_semaphores[user_id]:
-            task = asyncio.create_task(message_handle_fn())
-            user_tasks[user_id] = task
-
-            try:
-                await task
-            except asyncio.CancelledError:
-                await update.message.reply_text("✅ Canceled", parse_mode=ParseMode.HTML)
-            else:
-                pass
-            finally:
-                if user_id in user_tasks:
-                    del user_tasks[user_id]
-
-        mp.track(user_id, 'message_handle')
+    mp.track(user_id, 'message_handle')
 
 async def is_previous_message_not_answered_yet(update: Update, context: CallbackContext):
 
@@ -726,6 +752,63 @@ async def edited_message_handle(update: Update, context: CallbackContext):
         text = "🥲 Unfortunately, message <b>editing</b> is not supported"
         await update.edited_message.reply_text(text, parse_mode=ParseMode.HTML)
 
+async def handle_subgram_events(bot):
+    async for event in subgram.event_listener():
+        if event.type == EventType.SUBSCRIPTION_STARTED:
+            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_STARTED')
+            await bot.send_message(
+                chat_id=event.object.customer.telegram_id,
+                text="✅ Безлимитная подписка активирована!",
+                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+            )
+
+        # remove after testing?
+        if event.type == EventType.SUBSCRIPTION_RENEWED:
+            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_RENEWED')
+            await bot.send_message(
+                chat_id=event.object.customer.telegram_id,
+                text=f"Подписка была обновлена до: {event.object.status.ending_at}.",
+                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+            )
+
+        if event.type == EventType.SUBSCRIPTION_CANCELLED:
+            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_CANCELLED')
+            await bot.send_message(
+                chat_id=event.object.customer.telegram_id,
+                text=f"Вы успешно отписались! У Вас остается подписка до: {event.object.status.ending_at}.",
+                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+            )
+
+        if event.type == EventType.SUBSCRIPTION_UPGRADED:
+            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_UPGRADED')
+            await bot.send_message(
+                chat_id=event.object.customer.telegram_id,
+                text=f"Вы улучшили Вашу подписку и Ваша подписка до: {event.object.status.ending_at}.",
+                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+            )
+
+        if event.type == EventType.SUBSCRIPTION_RENEW_FAILED:
+            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_RENEW_FAILED')
+            await bot.send_message(
+                chat_id=event.object.customer.telegram_id,
+                text=f"У нас не получилось обновить Вашу подписку. Пожалуйста, проверьте способ оплаты.\nВаша подписка до: {event.object.status.ending_at}",
+                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+            )
+
+async def manage_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    checkout_page = await subgram.create_checkout_page(
+        product_id=config.subgram_product_id,
+        user_id=update.effective_user.id,
+        name=update.effective_user.name,
+        language_code=update.effective_user.language_code,
+    )
+
+    return await update.effective_user.send_message(
+        "⬇️ Управление подпиской ⬇️",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Chatty Unlimited", web_app=WebAppInfo(url=checkout_page.checkout_url))
+        ]]),
+    )
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
@@ -757,13 +840,16 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
         await context.bot.send_message(update.effective_chat.id, "Some error in error handler")
 
 async def post_init(application: Application):
+    # asyncio.create_task(handle_subgram_events(application.bot))
     await application.bot.set_my_commands([
-        BotCommand("/new", "Start new dialog"),
-        BotCommand("/voice", "Switch voice mode"),
-        BotCommand("/topics", "Show topics for discussion"),
-        BotCommand("/dict", "Show dictionary for the word"),
-        BotCommand("/stats", "Show stats"),
-        BotCommand("/help", "Show help message"),
+        BotCommand("/new", "Начать новый диалог"),
+        BotCommand("/voice", "Включить/выключить голосовые сообщения"),
+        BotCommand("/topics", "Выбрать темы для разговоров"),
+        # Clicking /dict doesn't work without a word
+        # BotCommand("/dict", "Show dictionary for the word"),
+        BotCommand("/stats", "Показать статистику использования"),
+        BotCommand("/help", "Как пользоваться ботом"),
+        BotCommand("/unlimited", "Управление безлимитной подпиской"),
     ])
 
 def run_bot() -> None:
@@ -791,7 +877,6 @@ def run_bot() -> None:
 
     application.add_handler(onboarding.conversation_handler) #filters?
 
-    #application.add_handler(CommandHandler("start", start_handle, filters=user_filter))
     application.add_handler(CommandHandler("help", help_handle, filters=user_filter))
 
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & user_filter, message_handle))
@@ -809,6 +894,7 @@ def run_bot() -> None:
 
     application.add_handler(CommandHandler("stats", stats_handle, filters=user_filter))
 
+    application.add_handler(CommandHandler("unlimited", manage_subscription, filters=user_filter))
 
     # admin commands
     application.add_handler(CommandHandler("spending", show_all_spending_handle, filters=admin_filter))

@@ -62,6 +62,8 @@ class Database:
             "n_words_said": 0,
             "survey_button": None,
             "survey_text": None,
+            "messages_sent_total": 0,
+            "messages_sent_today": 0,
         }
 
         if not self.check_if_user_exists(user_id):

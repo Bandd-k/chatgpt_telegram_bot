@@ -13,6 +13,8 @@ config_env = dotenv.dotenv_values(config_dir / "config.env")
 
 # config parameters
 telegram_token = config_yaml["telegram_token"]
+subgram_token = config_yaml["subgram_token"]
+subgram_product_id = config_yaml["subgram_product_id"]
 openai_api_key = config_yaml["openai_api_key"]
 openai_api_base = config_yaml.get("openai_api_base", None)
 allowed_telegram_usernames = config_yaml["allowed_telegram_usernames"]
