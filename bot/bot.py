@@ -336,6 +336,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
         send_survey_tasks[user_id].cancel()
     # if no survey was sent and the user is eligible
     survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
+    total_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
     messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
     if (survey_sent == 0) and (messages_sent_total > 10):
         # send survey in 15 minutes
@@ -754,46 +755,42 @@ async def edited_message_handle(update: Update, context: CallbackContext):
 
 async def handle_subgram_events(bot):
     async for event in subgram.event_listener():
-        if event.type == EventType.SUBSCRIPTION_STARTED:
-            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_STARTED')
-            await bot.send_message(
-                chat_id=event.object.customer.telegram_id,
-                text="✅ Безлимитная подписка активирована!",
-                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
-            )
+        try: 
+            if event.type == EventType.SUBSCRIPTION_STARTED:
+                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_STARTED')
+                await bot.send_message(
+                    chat_id=event.object.customer.telegram_id,
+                    text="✅ Безлимитная подписка активирована!"
+                )
 
-        # remove after testing?
-        if event.type == EventType.SUBSCRIPTION_RENEWED:
-            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_RENEWED')
-            await bot.send_message(
-                chat_id=event.object.customer.telegram_id,
-                text=f"Подписка была обновлена до: {event.object.status.ending_at}.",
-                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
-            )
+            if event.type == EventType.SUBSCRIPTION_CANCELLED:
+                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_CANCELLED')
+                await bot.send_message(
+                    chat_id=event.object.customer.telegram_id,
+                    text=f"Вы успешно отписались! У Вас остается подписка до: {event.object.status.ending_at}."
+                )
 
-        if event.type == EventType.SUBSCRIPTION_CANCELLED:
-            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_CANCELLED')
-            await bot.send_message(
-                chat_id=event.object.customer.telegram_id,
-                text=f"Вы успешно отписались! У Вас остается подписка до: {event.object.status.ending_at}.",
-                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
-            )
+            if event.type == EventType.SUBSCRIPTION_UPGRADED:
+                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_UPGRADED')
+                await bot.send_message(
+                    chat_id=event.object.customer.telegram_id,
+                    text=f"Вы улучшили Вашу подписку и Ваша подписка до: {event.object.status.ending_at}."
+                )
 
-        if event.type == EventType.SUBSCRIPTION_UPGRADED:
-            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_UPGRADED')
-            await bot.send_message(
-                chat_id=event.object.customer.telegram_id,
-                text=f"Вы улучшили Вашу подписку и Ваша подписка до: {event.object.status.ending_at}.",
-                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
-            )
-
-        if event.type == EventType.SUBSCRIPTION_RENEW_FAILED:
-            mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_RENEW_FAILED')
-            await bot.send_message(
-                chat_id=event.object.customer.telegram_id,
-                text=f"У нас не получилось обновить Вашу подписку. Пожалуйста, проверьте способ оплаты.\nВаша подписка до: {event.object.status.ending_at}",
-                reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
-            )
+            if event.type == EventType.SUBSCRIPTION_RENEW_FAILED:
+                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_RENEW_FAILED')
+                await bot.send_message(
+                    chat_id=event.object.customer.telegram_id,
+                    text=f"У нас не получилось обновить Вашу подписку. Пожалуйста, проверьте способ оплаты.\nВаша подписка до: {event.object.status.ending_at}",
+                    reply_markup=MANAGE_SUBSCRIPTION_MARKUP,
+                )
+        except Exception as e:
+            error_text = f"Something went wrong during handle_subgram. Reason: {e}"
+            logger.error(error_text)
+            mp.track(event.object.customer.telegram_id, 'Error', {
+                "function": "handle_subgram_events",
+                "error": error_text
+            })
 
 async def manage_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     checkout_page = await subgram.create_checkout_page(
@@ -840,7 +837,7 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
         await context.bot.send_message(update.effective_chat.id, "Some error in error handler")
 
 async def post_init(application: Application):
-    # asyncio.create_task(handle_subgram_events(application.bot))
+    asyncio.create_task(handle_subgram_events(application.bot))
     await application.bot.set_my_commands([
         BotCommand("/new", "Начать новый диалог"),
         BotCommand("/voice", "Включить/выключить голосовые сообщения"),
@@ -895,6 +892,7 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("stats", stats_handle, filters=user_filter))
 
     application.add_handler(CommandHandler("unlimited", manage_subscription, filters=user_filter))
+    application.add_handler(CallbackQueryHandler(manage_subscription, MANAGE_SUBSCRIPTION_CALLBACK_DATA))
 
     # admin commands
     application.add_handler(CommandHandler("spending", show_all_spending_handle, filters=admin_filter))
