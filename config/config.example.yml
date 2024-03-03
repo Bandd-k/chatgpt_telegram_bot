@@ -4,7 +4,6 @@ openai_api_base: null  # leave null to use default api base or you can put your 
 allowed_telegram_usernames: []  # if empty, the bot is available to anyone. pass a username string to allow it and/or user ids as positive integers and/or channel ids as negative integers
 new_dialog_timeout: 600  # new dialog starts after timeout (in seconds)
 n_chat_modes_per_page: 5
-enable_message_streaming: true  # if set, messages will be shown to user word-by-word
 
 # prices
 chatgpt_price_per_1000_tokens: 0.002

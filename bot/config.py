@@ -19,7 +19,6 @@ openai_api_key = config_yaml["openai_api_key"]
 openai_api_base = config_yaml.get("openai_api_base", None)
 allowed_telegram_usernames = config_yaml["allowed_telegram_usernames"]
 new_dialog_timeout = config_yaml["new_dialog_timeout"]
-enable_message_streaming = config_yaml.get("enable_message_streaming", True)
 n_chat_modes_per_page = config_yaml.get("n_chat_modes_per_page", 5)
 mongodb_uri = f"mongodb://mongo:{config_env['MONGODB_PORT']}"
 
