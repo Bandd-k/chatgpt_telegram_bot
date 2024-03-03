@@ -32,6 +32,3 @@ with open(config_dir / "topics.yml", 'r') as f:
 # models
 with open(config_dir / "models.yml", 'r') as f:
     models = yaml.safe_load(f)
-
-# files
-help_group_chat_video_path = Path(__file__).parent.parent.resolve() / "static" / "help_group_chat.mp4"

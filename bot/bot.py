@@ -172,25 +172,6 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
     if db.get_user_attribute(user.id, "current_streak_start") is None:
         db.set_user_attribute(user.id, "current_streak_start", datetime.now())
 
-async def is_bot_mentioned(update: Update, context: CallbackContext):
-     try:
-         message = update.message
-
-         if message.chat.type == "private":
-             return True
-
-         if message.text is not None and ("@" + context.bot.username) in message.text:
-             return True
-
-         if message.reply_to_message is not None:
-             if message.reply_to_message.from_user.id == context.bot.id:
-                 return True
-     except:
-         return True
-     else:
-         return False
-
-
 async def voice_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     user_id = update.message.from_user.id
@@ -291,21 +272,13 @@ def update_streak(user_id):
         db.set_user_attribute(user_id, "current_streak_start", datetime.now())
 
 
-async def message_handle(update: Update, context: CallbackContext, message=None, use_new_dialog_timeout=True, from_user = True):    
-    # check if bot was mentioned (for group chats)
-    if not await is_bot_mentioned(update, context):
-        return
-
+async def message_handle(update: Update, context: CallbackContext, message=None, use_new_dialog_timeout=True, from_user = True):
     # check if message is edited
     if from_user and update.edited_message is not None:
         await edited_message_handle(update, context)
         return
 
     _message = message or update.message.text
-
-    # remove bot mention (in group chats)
-    if update.message.chat.type != "private":
-        _message = _message.replace("@" + context.bot.username, "").strip()
 
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
@@ -509,11 +482,7 @@ async def is_previous_message_not_answered_yet(update: Update, context: Callback
 
 
 async def voice_message_handle(update: Update, context: CallbackContext):
-    # check if bot was mentioned (for group chats)
-    # context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
     await update.message.chat.send_action(action="typing")
-    if not await is_bot_mentioned(update, context):
-        return
 
     await register_user_if_not_exists(update, context, update.message.from_user)
     if await is_previous_message_not_answered_yet(update, context): return
