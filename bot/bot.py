@@ -178,11 +178,6 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
     if db.get_user_attribute(user.id, "current_streak_start") is None:
         db.set_user_attribute(user.id, "current_streak_start", datetime.now())
 
-    # image generation
-    if db.get_user_attribute(user.id, "n_generated_images") is None:
-        db.set_user_attribute(user.id, "n_generated_images", 0)
-
-
 async def is_bot_mentioned(update: Update, context: CallbackContext):
      try:
          message = update.message
