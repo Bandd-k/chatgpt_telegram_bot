@@ -1,4 +1,4 @@
-available_text_models: ["gpt-4-1106-preview", "gpt-4"]
+current_model: "gpt-4-1106-preview"
 
 info:
   gpt-4-1106-preview:
@@ -8,11 +8,6 @@ info:
 
     price_per_1000_input_tokens: 0.01
     price_per_1000_output_tokens: 0.03
-
-    scores:
-      smart: 5
-      fast: 4
-      cheap: 3
 
   whisper:
     type: audio

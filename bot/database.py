@@ -48,14 +48,14 @@ class Database:
 
             "last_interaction": datetime.now(),
             "first_seen": datetime.now(),
+            "current_streak_start": datetime.now(),
 
             "current_dialog_id": None,
+            "voice_mode": True,
             "current_chat_mode": "general_english",
-            "current_model": config.models["available_text_models"][0],
 
-            "n_used_tokens": {},
-
-            "n_generated_images": 0,
+            "n_output_tokens": 0,
+            "n_input_tokens": 0,
             "n_voice_generated_characters": 0,
             "n_transcribed_seconds": 0.0,  # voice message transcription
             "survey_sent": 0, # 0 = not sent. 1 = sent buttons. 2 = pressed a button. waiting for text feedback. 2 = answered
@@ -78,7 +78,6 @@ class Database:
             "user_id": user_id,
             "chat_mode": self.get_user_attribute(user_id, "current_chat_mode"),
             "start_time": datetime.now(),
-            "model": self.get_user_attribute(user_id, "current_model"),
             "messages": []
         }
 
@@ -106,19 +105,12 @@ class Database:
         self.check_if_user_exists(user_id, raise_exception=True)
         self.user_collection.update_one({"_id": user_id}, {"$set": {key: value}})
 
-    def update_n_used_tokens(self, user_id: int, model: str, n_input_tokens: int, n_output_tokens: int):
-        n_used_tokens_dict = self.get_user_attribute(user_id, "n_used_tokens")
+    def update_n_used_tokens(self, user_id: int, n_input_tokens: int, n_output_tokens: int):
+        current_input_tokens = self.get_user_attribute(user_id, "n_input_tokens") or 0
+        current_output_tokens = self.get_user_attribute(user_id, "n_output_tokens") or 0
 
-        if model in n_used_tokens_dict:
-            n_used_tokens_dict[model]["n_input_tokens"] += n_input_tokens
-            n_used_tokens_dict[model]["n_output_tokens"] += n_output_tokens
-        else:
-            n_used_tokens_dict[model] = {
-                "n_input_tokens": n_input_tokens,
-                "n_output_tokens": n_output_tokens
-            }
-
-        self.set_user_attribute(user_id, "n_used_tokens", n_used_tokens_dict)
+        self.set_user_attribute(user_id, "n_input_tokens", current_input_tokens + n_input_tokens)
+        self.set_user_attribute(user_id, "n_output_tokens", current_output_tokens + n_output_tokens)
 
     def get_dialog_messages(self, user_id: int, dialog_id: Optional[str] = None):
         self.check_if_user_exists(user_id, raise_exception=True)

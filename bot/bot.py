@@ -80,8 +80,7 @@ async def send_reminder(context: CallbackContext, user_id: int):
     reminder_time = 24 * 60 * 60  # 24 hours
     while True:
         await asyncio.sleep(reminder_time)
-        current_model = db.get_user_attribute(user_id, "current_model")
-        chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+        chatgpt_instance = openai_utils.ChatGPT()
         dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
         _message = ""
         answer, _, _ = await chatgpt_instance.send_message(
@@ -135,20 +134,15 @@ async def register_user_if_not_exists(update: Update, context: CallbackContext, 
     if user.id not in user_semaphores:
         user_semaphores[user.id] = asyncio.Semaphore(1)
 
-    if db.get_user_attribute(user.id, "current_model") is None:
-        db.set_user_attribute(user.id, "current_model", config.models["available_text_models"][0])
-
-    # back compatibility for n_used_tokens field
-    n_used_tokens = db.get_user_attribute(user.id, "n_used_tokens")
-    if isinstance(n_used_tokens, int) or isinstance(n_used_tokens, float):  # old format
-        new_n_used_tokens = {
-            "gpt-3.5-turbo": {
-                "n_input_tokens": 0,
-                "n_output_tokens": n_used_tokens
-            }
-        }
-        db.set_user_attribute(user.id, "n_used_tokens", new_n_used_tokens)
-
+    # make sure all new variables available
+    
+    # tokens
+        
+    if db.get_user_attribute(user.id, "n_input_tokens") is None:
+        db.set_user_attribute(user.id, "n_input_tokens", 0)
+    if db.get_user_attribute(user.id, "n_output_tokens") is None:
+        db.set_user_attribute(user.id, "n_output_tokens", 0)
+    
     # voice enabled
     if db.get_user_attribute(user.id, "voice_mode") is None:
         db.set_user_attribute(user.id, "voice_mode", True)
@@ -378,7 +372,6 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                 # in case of CancelledError
                 n_input_tokens, n_output_tokens = 0, 0
-                current_model = db.get_user_attribute(user_id, "current_model")
                 voice_mode = db.get_user_attribute(user_id, "voice_mode")
 
                 try:
@@ -388,7 +381,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                     dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
 
-                    chatgpt_instance = openai_utils.ChatGPT(model=current_model)
+                    chatgpt_instance = openai_utils.ChatGPT()
 
                     # todo async
                     # send correction check response 
@@ -461,11 +454,11 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                     last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
 
-                    db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+                    db.update_n_used_tokens(user_id, n_input_tokens, n_output_tokens)
 
                 except asyncio.CancelledError:
                     # note: intermediate token updates only work when enable_message_streaming=True (config.yml)
-                    db.update_n_used_tokens(user_id, current_model, n_input_tokens, n_output_tokens)
+                    db.update_n_used_tokens(user_id, n_input_tokens, n_output_tokens)
                     raise
 
                 except Exception as e:
@@ -700,20 +693,22 @@ def total_spending(user_id):
     total_n_spent_dollars = 0
     total_n_used_tokens = 0
 
-    n_used_tokens_dict = db.get_user_attribute(user_id, "n_used_tokens")
-    n_transcribed_seconds = db.get_user_attribute(user_id, "n_transcribed_seconds")
-    n_voice_generated_characters = db.get_user_attribute(user_id, "n_voice_generated_characters")
+    n_input_tokens = db.get_user_attribute(user_id, "n_input_tokens") or 0
+    n_output_tokens = db.get_user_attribute(user_id, "n_output_tokens") or 0
+    n_transcribed_seconds = db.get_user_attribute(user_id, "n_transcribed_seconds") or 0
+    n_voice_generated_characters = db.get_user_attribute(user_id, "n_voice_generated_characters") or 0
 
     details_text = "🏷️ Details:\n"
-    for model_key in sorted(n_used_tokens_dict.keys()):
-        n_input_tokens, n_output_tokens = n_used_tokens_dict[model_key]["n_input_tokens"], n_used_tokens_dict[model_key]["n_output_tokens"]
-        total_n_used_tokens += n_input_tokens + n_output_tokens
+    model_key = config.models["current_model"]
 
-        n_input_spent_dollars = config.models["info"][model_key]["price_per_1000_input_tokens"] * (n_input_tokens / 1000)
-        n_output_spent_dollars = config.models["info"][model_key]["price_per_1000_output_tokens"] * (n_output_tokens / 1000)
-        total_n_spent_dollars += n_input_spent_dollars + n_output_spent_dollars
+    # tokens 
+    total_n_used_tokens += n_input_tokens + n_output_tokens
 
-        details_text += f"- {model_key}: <b>{n_input_spent_dollars + n_output_spent_dollars:.03f}$</b> / <b>{n_input_tokens + n_output_tokens} tokens</b>\n"
+    n_input_spent_dollars = config.models["info"][model_key]["price_per_1000_input_tokens"] * (n_input_tokens / 1000)
+    n_output_spent_dollars = config.models["info"][model_key]["price_per_1000_output_tokens"] * (n_output_tokens / 1000)
+    total_n_spent_dollars += n_input_spent_dollars + n_output_spent_dollars
+
+    details_text += f"- {model_key}: <b>{n_input_spent_dollars + n_output_spent_dollars:.03f}$</b> / <b>{n_input_tokens + n_output_tokens} tokens</b>\n"
 
     # voice recognition
     voice_recognition_n_spent_dollars = config.models["info"]["whisper"]["price_per_1_min"] * (n_transcribed_seconds / 60)
