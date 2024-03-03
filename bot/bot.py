@@ -78,7 +78,9 @@ last_message_before_survey = {}
 
 async def send_reminder(context: CallbackContext, user_id: int):
     reminder_time = 24 * 60 * 60  # 24 hours
-    while True:
+    attempt = 0
+    while attempt < 5:
+        attempt += 1
         await asyncio.sleep(reminder_time)
         chatgpt_instance = openai_utils.ChatGPT()
         dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
@@ -109,6 +111,24 @@ async def send_reminder(context: CallbackContext, user_id: int):
             db.set_user_attribute(user_id, "survey_sent", 3)
 
         mp.track(user_id, 'send_reminder')
+    
+    await asyncio.sleep(reminder_time)
+    chatgpt_instance = openai_utils.ChatGPT()
+    dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+    _message = ""
+    answer, _, _ = await chatgpt_instance.send_message(
+        _message,
+        dialog_messages=dialog_messages,
+        chat_mode="last_reminder"
+    )
+    await context.bot.send_message(user_id, answer)
+    new_dialog_message = {"user": "", "bot": answer, "date": datetime.now()}
+    db.set_dialog_messages(
+        user_id,
+        dialog_messages + [new_dialog_message],
+        dialog_id=None
+    )
+    mp.track(user_id, 'send_last_reminder')
 
 
 def split_text_into_chunks(text, chunk_size):
