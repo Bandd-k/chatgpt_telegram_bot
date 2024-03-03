@@ -246,25 +246,6 @@ async def dict_handle(update: Update, context: CallbackContext):
     await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
     mp.track(user_id, 'dict_handle')
 
-
-async def start_handle(update: Update, context: CallbackContext):
-    await register_user_if_not_exists(update, context, update.message.from_user)
-    user_id = update.message.from_user.id
-
-    db.set_user_attribute(user_id, "last_interaction", datetime.now())
-    db.start_new_dialog(user_id)
-
-    reply_text = "Hi! I'm <b>English Speaking trainer</b> 🤖\n\n"
-    reply_text += HELP_MESSAGE
-
-    await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-    chat_mode = "general_english"
-    db.set_user_attribute(user_id, "current_chat_mode", chat_mode)
-
-    await update.message.reply_text(f"{config.chat_modes[chat_mode]['welcome_message']}", parse_mode=ParseMode.HTML)
-    mp.track(user_id, 'start_handle')
-
-
 async def help_handle(update: Update, context: CallbackContext):
     await register_user_if_not_exists(update, context, update.message.from_user)
     user_id = update.message.from_user.id
