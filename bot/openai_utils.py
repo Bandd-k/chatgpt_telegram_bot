@@ -4,7 +4,7 @@ from openai import AsyncOpenAI
 import logging
 logger = logging.getLogger(__name__)
 
-aclient = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_api_base)
+aclient = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_api_base, timeout=100.0)
 
 OPENAI_COMPLETION_OPTIONS = {
     "temperature": 0,
