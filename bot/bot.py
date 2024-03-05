@@ -442,7 +442,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                         "function": "message_handle_fn",
                         "error": error_text
                     })
-                    await update.message.reply_text(error_text)
+                    await update.message.reply_text("ой, произошла ошибка при отправке сообщения, пожалуйста, отправьте заново")
                     return
 
                 # send message if some messages were removed from the context
