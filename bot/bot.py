@@ -801,6 +801,7 @@ def run_bot() -> None:
         .http_version("1.1")
         .get_updates_http_version("1.1")
         .post_init(post_init)
+        .connect_timeout(30)
         .build()
     )
 

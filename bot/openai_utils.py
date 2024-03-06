@@ -22,6 +22,8 @@ class ChatGPT:
     async def send_message(self, message, dialog_messages=[], chat_mode="general_english"):
         if chat_mode not in config.chat_modes.keys():
             raise ValueError(f"Chat mode {chat_mode} is not supported")
+        
+        dialog_messages = dialog_messages[-10:]
 
         n_dialog_messages_before = len(dialog_messages)
         answer = None
