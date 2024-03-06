@@ -640,7 +640,10 @@ async def survey_button_press_handle(update: Update, context: CallbackContext):
     })
     db.set_user_attribute(user_id, "survey_button", survey_answer)
 
-    await query.message.reply_text("Благодарю за оценку! Теперь, пожалуйста, напишите в одном сообщении, что, по вашему мнению, можно улучшить, чтобы я стала еще лучше. После отправки сообщения мы автоматически продолжим наш диалог и практику английского!", parse_mode=ParseMode.HTML)
+    if int(survey_answer) < 9:
+        await query.message.reply_text("Благодарю за оценку! Теперь, пожалуйста, напишите в одном сообщении, что, по вашему мнению, можно улучшить, чтобы я стала еще лучше. После отправки сообщения мы автоматически продолжим наш диалог и практику английского!", parse_mode=ParseMode.HTML)
+    else:
+        await query.message.reply_text("Благодарю за оценку! Теперь, пожалуйста, напишите в одном сообщении, что вам больше всего понравилось в общении со мной. После отправки сообщения мы автоматически продолжим наш диалог и практику английского!", parse_mode=ParseMode.HTML)
     mp.track(user_id, 'survey_button_press_handle')
 
 async def get_survey_text_answer(update: Update):
