@@ -1,7 +1,7 @@
-current_model: "gpt-4-1106-preview"
+current_model: "gpt-4-turbo-preview"
 
 info:
-  gpt-4-1106-preview:
+  gpt-4-turbo-preview:
     type: chat_completion
     name: GPT-4 Turbo
     description: GPT-4 Turbo is a <b>faster</b> and <b>cheaper</b> version of GPT-4. It's as smart as GPT-4, so you should use it instead of GPT-4.

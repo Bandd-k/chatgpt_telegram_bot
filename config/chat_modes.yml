@@ -25,3 +25,8 @@ dictionary:
   welcome_message: 🇬🇧 Hi, I'm <b>dictionary Helper</b>. How can I help you!
   prompt_start: |
     You are a very concise, smart, helpful assistant. You explain meanings of the words to a student. Try to be as helpful as possible with the shortest reply possible.
+
+summarizer:
+  prompt_start: |
+    You need to make tiny and very concise note about the student. Keep only crucial information for conversation.
+  parse_mode: html

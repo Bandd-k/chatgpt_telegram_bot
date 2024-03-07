@@ -301,6 +301,8 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
     survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
     total_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
     messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
+    last_summary_index = db.get_user_attribute(user_id, "last_summary_index") or 0
+    user_summary = db.get_user_attribute(user_id, "user_summary")
     if (survey_sent == 0) and (messages_sent_total > 10):
         # send survey in 15 minutes
         send_survey_tasks[user_id] = asyncio.create_task(send_survey_buttons(update))
@@ -354,6 +356,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                         return
 
                     dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+                    needs_to_summary = (len(dialog_messages) - last_summary_index) > 7
 
                     chatgpt_instance = openai_utils.ChatGPT()
 
@@ -378,8 +381,9 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                     answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
                         _message,
-                        dialog_messages=dialog_messages,
-                        chat_mode=chat_mode
+                        dialog_messages=dialog_messages[-5:] if user_summary else dialog_messages[-10:],
+                        chat_mode=chat_mode,
+                        additional_system=f'Information about the student: {user_summary}' if user_summary is not None else None
                     )
 
                     # Chatty will reply to this message at the end of the survey to remind about the conversation 
@@ -425,6 +429,25 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                         db.get_dialog_messages(user_id, dialog_id=None) + [new_dialog_message],
                         dialog_id=None
                     )
+
+                    if needs_to_summary:
+                        # summary here
+                        try:
+                            new_messages = dialog_messages[last_summary_index:]
+
+                            new_summary, _, _ = await chatgpt_instance.send_message(
+                                "Make short notes about the student to continue conversation later",
+                                dialog_messages=new_messages,
+                                additional_system=f'Information about the student: {user_summary}' if user_summary is not None else None,
+                                chat_mode="summarizer"
+                            )
+                            db.set_user_attribute(user_id, "user_summary", new_summary)
+                            db.set_user_attribute(user_id, "last_summary_index", len(dialog_messages))
+                        except:
+                            mp.track(user_id, 'Error', {
+                                "function": "message_handle_fn",
+                                "error": "summary no fatal error"
+                            })
 
                     last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
 
