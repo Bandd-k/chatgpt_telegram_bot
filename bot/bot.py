@@ -356,7 +356,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                         return
 
                     dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
-                    needs_to_summary = (len(dialog_messages) - last_summary_index) > 7
+                    needs_to_summary = (len(dialog_messages) - last_summary_index) > 8
 
                     chatgpt_instance = openai_utils.ChatGPT()
 
@@ -433,7 +433,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                     if needs_to_summary:
                         # summary here
                         try:
-                            new_messages = dialog_messages[last_summary_index:]
+                            new_messages = dialog_messages[last_summary_index:-2]
 
                             new_summary, _, _ = await chatgpt_instance.send_message(
                                 "Make short summary about the student to use for future conversations",
@@ -442,7 +442,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                                 chat_mode="summarizer"
                             )
                             db.set_user_attribute(user_id, "user_summary", new_summary)
-                            db.set_user_attribute(user_id, "last_summary_index", len(dialog_messages))
+                            db.set_user_attribute(user_id, "last_summary_index", len(dialog_messages-2))
                         except:
                             mp.track(user_id, 'Error', {
                                 "function": "message_handle_fn",
