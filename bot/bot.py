@@ -442,11 +442,11 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                                 chat_mode="summarizer"
                             )
                             db.set_user_attribute(user_id, "user_summary", new_summary)
-                            db.set_user_attribute(user_id, "last_summary_index", len(dialog_messages-2))
-                        except:
+                            db.set_user_attribute(user_id, "last_summary_index", len(dialog_messages)-2)
+                        except Exception as e:
                             mp.track(user_id, 'Error', {
                                 "function": "message_handle_fn",
-                                "error": "summary no fatal error"
+                                "error": e
                             })
 
                     last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
