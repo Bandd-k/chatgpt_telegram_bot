@@ -381,9 +381,9 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
                     answer, (n_input_tokens, n_output_tokens), n_first_dialog_messages_removed = await chatgpt_instance.send_message(
                         _message,
-                        dialog_messages=dialog_messages[-5:] if user_summary else dialog_messages[-10:],
+                        dialog_messages=dialog_messages[last_summary_index:],
                         chat_mode=chat_mode,
-                        additional_system=f'Information about the student: {user_summary}' if user_summary is not None else None
+                        additional_system=f'Information about the student from previous conversations: {user_summary}' if user_summary is not None else None
                     )
 
                     # Chatty will reply to this message at the end of the survey to remind about the conversation 
@@ -436,9 +436,9 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                             new_messages = dialog_messages[last_summary_index:]
 
                             new_summary, _, _ = await chatgpt_instance.send_message(
-                                "Make short notes about the student to continue conversation later",
+                                "Make short summary about the student to use for future conversations",
                                 dialog_messages=new_messages,
-                                additional_system=f'Information about the student: {user_summary}' if user_summary is not None else None,
+                                additional_system=f'Information about the student from previous conversations: {user_summary}' if user_summary is not None else None,
                                 chat_mode="summarizer"
                             )
                             db.set_user_attribute(user_id, "user_summary", new_summary)

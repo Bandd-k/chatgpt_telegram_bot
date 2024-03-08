@@ -28,5 +28,5 @@ dictionary:
 
 summarizer:
   prompt_start: |
-    You need to make tiny and very concise note about the student. Keep only crucial information for conversation.
+    You need to make a very concise summary of the the provided dialog. Focus on the information about the student (user) that may be needed for future conversations.
   parse_mode: html
