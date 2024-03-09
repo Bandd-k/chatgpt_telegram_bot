@@ -319,7 +319,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
             messages_sent_today = 0
 
         # inline subgram.has_access() check to not make requests until the message quota is used
-        if (messages_sent_total > 29 and messages_sent_today > 9) and not await subgram.has_access(
+        if (messages_sent_total > 19 and messages_sent_today > 7) and not await subgram.has_access(
             user_id=update.effective_user.id,
             product_id=config.subgram_product_id,
         ):
