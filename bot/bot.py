@@ -72,47 +72,18 @@ HELP_MESSAGE = """Команды:
 Взаимодействуйте с AI English Tutor, как вы бы делали это с носителем языка. Бот исправит критические ошибки, и если вы что-то не понимаете, не стесняйтесь просить его перефразировать. Бот также может переводить, но оставьте это для критических ситуаций, когда понимание является существенным.
 """
 
-reminder_tasks = {}
-send_survey_tasks = {}
-last_message_before_survey = {}
+NOTIFICATION_FREQUENCY = 10
 
-async def send_reminder(context: CallbackContext, user_id: int):
-    reminder_time = 24 * 60 * 60  # 24 hours
-    attempt = 0
-    while attempt < 5:
-        attempt += 1
-        await asyncio.sleep(reminder_time)
-        chatgpt_instance = openai_utils.ChatGPT()
-        dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
-        _message = ""
-        answer, _, _ = await chatgpt_instance.send_message(
-            _message,
-            dialog_messages=dialog_messages,
-            chat_mode="reminder"
-        )
-        await context.bot.send_message(user_id, answer)
-        new_dialog_message = {"user": "", "bot": answer, "date": datetime.now()}
-        db.set_dialog_messages(
-            user_id,
-            dialog_messages + [new_dialog_message],
-            dialog_id=None
-        )
+async def send_survey(context, user_id):
+    text = "Спасибо, что общаетесь со мной! Насколько вероятно, что вы порекомендуете меня своим друзьям? Оцените, пожалуйста, от 0 до 10. Ваша оценка останется анонимной, но поможет моим разработчикам сделать меня еще лучше!"
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"survey_button_press|{i}")] for i in range(11)]
 
-        survey_sent = db.get_user_attribute(user_id, "survey_sent")
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(user_id, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    db.set_user_attribute(user_id, "survey_sent", 1)
+    mp.track(user_id, 'send_survey_buttons')
 
-        # if reminder is sent after unanswered survey (did not press buttons), 
-        # set as if the survey was not sent. so that the survey will be resent.
-        if survey_sent == 1:
-            db.set_user_attribute(user_id, "survey_sent", 0)
-
-        # if reminder is sent after unanswered survey (pressed button but did not type anything), 
-        # set as if the user have completed the survey
-        if survey_sent == 2:
-            db.set_user_attribute(user_id, "survey_sent", 3)
-
-        mp.track(user_id, 'send_reminder')
-    
-    await asyncio.sleep(reminder_time)
+async def send_last_reminder(context, user_id):
     chatgpt_instance = openai_utils.ChatGPT()
     dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
     _message = ""
@@ -129,6 +100,72 @@ async def send_reminder(context: CallbackContext, user_id: int):
         dialog_id=None
     )
     mp.track(user_id, 'send_last_reminder')
+
+async def send_reminder(context, user_id):
+    chatgpt_instance = openai_utils.ChatGPT()
+    dialog_messages = db.get_dialog_messages(user_id, dialog_id=None)
+    _message = ""
+    answer, _, _ = await chatgpt_instance.send_message(
+        _message,
+        dialog_messages=dialog_messages,
+        chat_mode="reminder"
+    )
+    await context.bot.send_message(user_id, answer)
+    new_dialog_message = {"user": "", "bot": answer, "date": datetime.now()}
+    db.set_dialog_messages(
+        user_id,
+        dialog_messages + [new_dialog_message],
+        dialog_id=None
+    )
+
+    survey_sent = db.get_user_attribute(user_id, "survey_sent")
+
+    # if reminder is sent after unanswered survey (did not press buttons), 
+    # set as if the survey was not sent. so that the survey will be resent.
+    if survey_sent == 1:
+        db.set_user_attribute(user_id, "survey_sent", 0)
+
+    # if reminder is sent after unanswered survey (pressed button but did not type anything), 
+    # set as if the user have completed the survey
+    if survey_sent == 2:
+        db.set_user_attribute(user_id, "survey_sent", 3)
+
+    mp.track(user_id, 'send_reminder')
+
+def has_passed_interval(last_message_time, current_time, interval_seconds):
+    time_difference = current_time - last_message_time
+    seconds_passed = time_difference.total_seconds()
+    # Check if seconds passed is within the target interval and less than interval plus 10 minutes.
+    return interval_seconds <= seconds_passed < interval_seconds + 60 * NOTIFICATION_FREQUENCY
+
+# This function will be called every NOTIFICATION_FREQUENCY minutes by the job queue
+async def check_last_message(context):
+    user_ids = db.get_all_user_ids()
+    current_time = datetime.now()
+    
+    for user_id in user_ids:
+        last_message_timestamp = db.get_user_attribute(user_id, "last_message_timestamp")
+        if last_message_timestamp is None:
+            continue
+
+        # List of intervals in seconds (24h, 48h, 72h, 96h, 120h)
+        intervals = [24 * 3600, 48 * 3600, 72 * 3600, 96 * 3600, 120 * 3600]
+        last_reminder_interval = 144*3600
+        survey_interval = 20*60
+        
+        for interval_seconds in intervals:
+            if has_passed_interval(last_message_timestamp, current_time, interval_seconds):
+                await send_reminder(context, user_id)
+                break
+
+        if has_passed_interval(last_message_timestamp, current_time, last_reminder_interval):
+            await send_last_reminder(context, user_id)
+
+        survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
+        messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
+        if (survey_sent == 0) and (messages_sent_total > 10) and has_passed_interval(last_message_timestamp, current_time, survey_interval):
+            await send_last_reminder(context, user_id)
+        
 
 
 def split_text_into_chunks(text, chunk_size):
@@ -289,23 +326,12 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
     else:
         user_id = update.from_user.id
 
-    if user_id in reminder_tasks:
-        # cancel the old reminder task
-        reminder_tasks[user_id].cancel()
-    reminder_tasks[user_id] = asyncio.create_task(send_reminder(context, user_id))  # schedule a new reminder task
-
-    if user_id in send_survey_tasks:
-        # reset send survey timer
-        send_survey_tasks[user_id].cancel()
     # if no survey was sent and the user is eligible
     survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
     total_words_said = db.get_user_attribute(user_id, "n_words_said") or 0
     messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
     last_summary_index = db.get_user_attribute(user_id, "last_summary_index") or 0
     user_summary = db.get_user_attribute(user_id, "user_summary")
-    if (survey_sent == 0) and (messages_sent_total > 10):
-        # send survey in 15 minutes
-        send_survey_tasks[user_id] = asyncio.create_task(send_survey_buttons(update))
 
     if survey_sent == 2: # user pressed survey button and bot is waiting for writted feedback
         await get_survey_text_answer(update)
@@ -319,7 +345,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
             messages_sent_today = 0
 
         # inline subgram.has_access() check to not make requests until the message quota is used
-        if (messages_sent_total > 29 and messages_sent_today > 9) and not await subgram.has_access(
+        if (messages_sent_total > 19 and messages_sent_today > 7) and not await subgram.has_access(
             user_id=update.effective_user.id,
             product_id=config.subgram_product_id,
         ):
@@ -449,7 +475,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                                 "error": e
                             })
 
-                    last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
+                    db.set_user_attribute(user_id, "last_message_before_survey", last_message_to_reply_to_after_survey.id)
 
                     db.update_n_used_tokens(user_id, n_input_tokens, n_output_tokens)
 
@@ -681,8 +707,9 @@ async def get_survey_text_answer(update: Update):
         'survey_text': survey_text, 
     })
     db.set_user_attribute(user_id, "survey_text", survey_text)
+    replyId = db.get_user_attribute(user_id, "last_message_before_survey")
 
-    await update.message.reply_text("Отлично! Thank you so much! Теперь давайте продолжим наш разговор! 😊", reply_to_message_id=last_message_before_survey[user_id], parse_mode=ParseMode.HTML) 
+    await update.message.reply_text("Отлично! Thank you so much! Теперь давайте продолжим наш разговор! 😊", reply_to_message_id=replyId, parse_mode=ParseMode.HTML) 
     mp.track(user_id, 'get_survey_text_answer')
 
 def total_spending(user_id):
@@ -804,6 +831,7 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
 
 async def post_init(application: Application):
     asyncio.create_task(handle_subgram_events(application.bot))
+    application.job_queue.run_repeating(check_last_message, interval=NOTIFICATION_FREQUENCY * 60, first=0)
     await application.bot.set_my_commands([
         BotCommand("/new", "Начать новый диалог"),
         BotCommand("/voice", "Включить/выключить голосовые сообщения"),
