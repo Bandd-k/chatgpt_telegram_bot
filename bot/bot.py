@@ -74,7 +74,6 @@ HELP_MESSAGE = """Команды:
 
 reminder_tasks = {}
 send_survey_tasks = {}
-last_message_before_survey = {}
 
 async def send_reminder(context: CallbackContext, user_id: int):
     reminder_time = 24 * 60 * 60  # 24 hours
@@ -449,7 +448,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                                 "error": e
                             })
 
-                    last_message_before_survey[user_id] = last_message_to_reply_to_after_survey.id
+                    db.set_user_attribute(user_id, "last_message_before_survey", last_message_to_reply_to_after_survey.id)
 
                     db.update_n_used_tokens(user_id, n_input_tokens, n_output_tokens)
 
@@ -681,8 +680,9 @@ async def get_survey_text_answer(update: Update):
         'survey_text': survey_text, 
     })
     db.set_user_attribute(user_id, "survey_text", survey_text)
+    replyId = db.get_user_attribute(user_id, "last_message_before_survey")
 
-    await update.message.reply_text("Отлично! Thank you so much! Теперь давайте продолжим наш разговор! 😊", reply_to_message_id=last_message_before_survey[user_id], parse_mode=ParseMode.HTML) 
+    await update.message.reply_text("Отлично! Thank you so much! Теперь давайте продолжим наш разговор! 😊", reply_to_message_id=replyId, parse_mode=ParseMode.HTML) 
     mp.track(user_id, 'get_survey_text_answer')
 
 def total_spending(user_id):
