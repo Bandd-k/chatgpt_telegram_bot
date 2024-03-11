@@ -89,7 +89,7 @@ async def send_last_reminder(context, user_id):
     _message = ""
     answer, _, _ = await chatgpt_instance.send_message(
         _message,
-        dialog_messages=dialog_messages,
+        dialog_messages=dialog_messages[-3:],
         chat_mode="last_reminder"
     )
     await context.bot.send_message(user_id, answer)
@@ -107,7 +107,7 @@ async def send_reminder(context, user_id):
     _message = ""
     answer, _, _ = await chatgpt_instance.send_message(
         _message,
-        dialog_messages=dialog_messages,
+        dialog_messages=dialog_messages[-3:],
         chat_mode="reminder"
     )
     await context.bot.send_message(user_id, answer)
