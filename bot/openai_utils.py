@@ -8,7 +8,7 @@ aclient = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_api_
 
 OPENAI_COMPLETION_OPTIONS = {
     "temperature": 0,
-    "max_tokens": 200,
+    "max_tokens": 300,
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
