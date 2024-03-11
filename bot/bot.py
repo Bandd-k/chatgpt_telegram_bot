@@ -346,7 +346,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
 
         # inline subgram.has_access() check to not make requests until the message quota is used
         if (messages_sent_total > 19 and messages_sent_today > 7) and not await subgram.has_access(
-            user_id=update.effective_user.id,
+            user_id=user_id,
             product_id=config.subgram_product_id,
         ):
             mp.track(user_id, 'no_subscription_block')
@@ -422,8 +422,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                             tmp_dir = Path(tmp_dir)
                             voice_mp3_path = tmp_dir / "voice.mp3"
                             voice_ogg_path = tmp_dir / "voice.ogg"
-                            voice_part = answer.split("<b>")[0]
-                            await openai_utils.generate_audio(voice_part, voice_mp3_path)
+                            await openai_utils.generate_audio(answer, voice_mp3_path)
                             # Convert the MP3 file to OGG format.
                             # make async?
                             audio_segment = pydub.AudioSegment.from_mp3(voice_mp3_path)
@@ -431,7 +430,7 @@ async def message_handle(update: Update, context: CallbackContext, message=None,
                             audio_segment.export(voice_ogg_path, format="ogg", codec = "libopus")
 
                             # update n_voice_generated_characters
-                            db.set_user_attribute(user_id, "n_voice_generated_characters", len(voice_part) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
+                            db.set_user_attribute(user_id, "n_voice_generated_characters", len(answer) + db.get_user_attribute(user_id, "n_voice_generated_characters"))
                             try:
                                 last_message_to_reply_to_after_survey = await update.message.reply_voice(voice=open(voice_ogg_path, 'rb'))
                             except Exception as e:
@@ -770,7 +769,8 @@ async def handle_subgram_events(bot):
     async for event in subgram.event_listener():
         try: 
             if event.type == EventType.SUBSCRIPTION_STARTED:
-                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_STARTED')
+                title = event.object.plan.title
+                mp.track(event.object.customer.telegram_id, 'SUBSCRIPTION_STARTED', { "plan": title })
                 await bot.send_message(
                     chat_id=event.object.customer.telegram_id,
                     text="✅ Безлимитная подписка активирована!"
