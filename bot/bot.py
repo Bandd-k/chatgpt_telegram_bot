@@ -164,7 +164,7 @@ async def check_last_message(context):
         survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
         messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
         if (survey_sent == 0) and (messages_sent_total > 10) and has_passed_interval(last_message_timestamp, current_time, survey_interval):
-            await send_last_reminder(context, user_id)
+            await send_survey(context, user_id)
         
 
 
