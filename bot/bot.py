@@ -144,27 +144,37 @@ async def check_last_message(context):
     current_time = datetime.now()
     
     for user_id in user_ids:
-        last_message_timestamp = db.get_user_attribute(user_id, "last_message_timestamp")
-        if last_message_timestamp is None:
-            continue
+        try:
+            last_message_timestamp = db.get_user_attribute(user_id, "last_message_timestamp")
+            if last_message_timestamp is None:
+                continue
 
-        # List of intervals in seconds (24h, 48h, 72h, 96h, 120h)
-        intervals = [24 * 3600, 48 * 3600, 72 * 3600, 96 * 3600, 120 * 3600]
-        last_reminder_interval = 144*3600
-        survey_interval = 20*60
-        
-        for interval_seconds in intervals:
-            if has_passed_interval(last_message_timestamp, current_time, interval_seconds):
-                await send_reminder(context, user_id)
-                break
+            # List of intervals in seconds (24h, 48h, 72h, 96h, 120h)
+            intervals = [24 * 3600, 48 * 3600, 72 * 3600, 96 * 3600, 120 * 3600]
+            last_reminder_interval = 144*3600
+            survey_interval = 20*60
+            
+            for interval_seconds in intervals:
+                if has_passed_interval(last_message_timestamp, current_time, interval_seconds):
+                    await send_reminder(context, user_id)
+                    break
 
-        if has_passed_interval(last_message_timestamp, current_time, last_reminder_interval):
-            await send_last_reminder(context, user_id)
+            if has_passed_interval(last_message_timestamp, current_time, last_reminder_interval):
+                await send_last_reminder(context, user_id)
 
-        survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
-        messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
-        if (survey_sent == 0) and (messages_sent_total > 10) and has_passed_interval(last_message_timestamp, current_time, survey_interval):
-            await send_survey(context, user_id)
+            survey_sent = db.get_user_attribute(user_id, "survey_sent") or 0
+            messages_sent_total = db.get_user_attribute(user_id, "messages_sent_total") or 0
+            if (survey_sent == 0) and (messages_sent_total > 10) and has_passed_interval(last_message_timestamp, current_time, survey_interval):
+                await send_survey(context, user_id)
+        except Exception as e:
+            error_text = f"erros: {e}"
+            logger.error(error_text)
+            mp.track(user_id, 'Error', {
+                "function": "check_last_message",
+                "error": error_text
+            })
+            
+
         
 
 
