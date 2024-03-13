@@ -25,8 +25,10 @@ class ChatGPT:
 
         n_dialog_messages_before = len(dialog_messages)
         answer = None
+        attempts = 0
         while answer is None:
             try:
+                attempts = attempts + 1
                 messages = self._generate_prompt_messages(message, dialog_messages, chat_mode, additional_system)
                 # logger.error('messages')
                 # logger.error(messages)
@@ -42,7 +44,8 @@ class ChatGPT:
             except openai.OpenAIError as e:  # too many tokens
                 if len(dialog_messages) == 0:
                     raise ValueError("Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
-
+                if attempts > 3:
+                    raise e
                 # forget first message in dialog_messages
                 dialog_messages = dialog_messages[1:]
 
