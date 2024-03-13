@@ -2,10 +2,12 @@ from telegram.ext import CommandHandler, ConversationHandler, CallbackQueryHandl
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 import asyncio
+import database
 
 logger = logging.getLogger(__name__)
 from mixpanel import Mixpanel
 mp = Mixpanel("4acbbf84b424e3265bcc39e82cb3634b")
+db = database.Database()
 
 STEPS = [
     {
@@ -51,6 +53,16 @@ STEPS = [
 ]
 
 async def handler(update, context, step_index):
+
+    #migration
+    if step_index == 0 and db.check_if_user_exists(update.message.from_user.id):
+        # update.message.from_user.id exists only in index 0
+        last_message = db.get_dialog_messages(update.message.from_user.id, dialog_id=None)[-1]['bot']
+        if  last_message is not None:
+            await context.bot.send_message(update.message.from_user.id, "Привет! Давай продолжим наш разговор, если хотите начать новый /new")
+            await context.bot.send_message(update.message.from_user.id, last_message)
+            return ConversationHandler.END
+
     step = STEPS[step_index]
     query = update
     if step_index == 0:
